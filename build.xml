@@ -15,8 +15,8 @@
     <property name="test.reports" location="${dist}/reports"/>
 
     <property environment="env" />
-    <property name="android-sdk-path" value="${env.ANDROID_SDK}" />
-    <property name="android-target" value="${env.ANDROID_TARGET}" />
+    <property name="android-sdk-path" value="${env.ANDROID_HOME}" />
+    <property name="android-target" value="19" />
 
     <property name="groupId" value="com.amplitude" />
     <property name="artifactId" value="amplitude-android" />
@@ -76,7 +76,9 @@
                srcdir="${src}"
                destdir="${build}"
                includeantruntime="false"
-               debug="true">
+               debug="true"
+               source="1.7"
+               target="1.7">
             <classpath refid="dependency.classpath" />
         </javac>
     </target>

@@ -27,6 +27,12 @@ import android.content.SharedPreferences;
 @Config(manifest = Config.NONE)
 public class UpgradePrefsTest extends BaseTest {
 
+    private Amplitude.Listener listener = new Amplitude.Listener() {
+        @Override public void onError(AmplitudeException error) {
+
+        }
+    };
+
     @Before
     public void setUp() throws Exception {
         ShadowApplication.getInstance().setPackageName("com.amplitude.test");
@@ -59,7 +65,7 @@ public class UpgradePrefsTest extends BaseTest {
                 .putBoolean("com.amplitude.a.optOut", true)
                 .commit();
 
-        assertTrue(AmplitudeClient.upgradePrefs(context, "com.amplitude.a", null));
+        assertTrue(AmplitudeClient.upgradePrefs(context, "com.amplitude.a", null, listener));
 
         String targetName = Constants.PACKAGE_NAME + "." + context.getPackageName();
         SharedPreferences target = context.getSharedPreferences(targetName, Context.MODE_PRIVATE);
@@ -77,18 +83,18 @@ public class UpgradePrefsTest extends BaseTest {
 
     @Test
     public void testUpgradeSelf() {
-        assertFalse(AmplitudeClient.upgradePrefs(context));
+        assertFalse(AmplitudeClient.upgradePrefs(context, listener));
     }
 
     @Test
     public void testUpgradeEmpty() {
-        assertFalse(AmplitudeClient.upgradePrefs(context, "empty", null));
+        assertFalse(AmplitudeClient.upgradePrefs(context, "empty", null, listener));
 
         String sourceName = "empty" + "." + context.getPackageName();
         context.getSharedPreferences(sourceName, Context.MODE_PRIVATE).edit()
                 .commit();
 
-        assertFalse(AmplitudeClient.upgradePrefs(context, "empty", null));
+        assertFalse(AmplitudeClient.upgradePrefs(context, "empty", null, listener));
     }
 
     @Test
@@ -99,7 +105,7 @@ public class UpgradePrefsTest extends BaseTest {
                 .putString("partial.deviceId", "deviceid")
                 .commit();
 
-        assertTrue(AmplitudeClient.upgradePrefs(context, "partial", null));
+        assertTrue(AmplitudeClient.upgradePrefs(context, "partial", null, listener));
 
         String targetName = Constants.PACKAGE_NAME + "." + context.getPackageName();
         SharedPreferences target = context.getSharedPreferences(targetName, Context.MODE_PRIVATE);
