@@ -169,11 +169,11 @@ public class PinnedAmplitudeClient extends AmplitudeClient {
     }
 
     @Override
-    protected void makeEventUploadPostRequest(OkHttpClient client, String events, final long maxId) {
+    protected void makeEventUploadPostRequest(OkHttpClient client, String events, final long maxId, Amplitude.UploadCallback callback) {
         SSLSocketFactory factory = getPinnedCertSslSocketFactory();
         if (factory != null) {
             client.setSslSocketFactory(factory);
-            super.makeEventUploadPostRequest(client, events, maxId);
+            super.makeEventUploadPostRequest(client, events, maxId, callback);
         }
         else {
             Log.e(TAG, "Unable to pin SSL as requested. Cowardly refusing to send data.");

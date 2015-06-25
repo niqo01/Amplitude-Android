@@ -45,6 +45,16 @@ public class AmplitudeClient {
         }
     };
 
+    private static final Amplitude.UploadCallback EMPTY = new Amplitude.UploadCallback() {
+        @Override public void onComplete() {
+
+        }
+
+        @Override public void onError(AmplitudeException error) {
+
+        }
+    };
+
     protected Context context;
     protected Amplitude.Listener listener = ANDROID_LOG;
     protected OkHttpClient httpClient;
@@ -222,11 +232,6 @@ public class AmplitudeClient {
 
     public void setOffline(boolean offline) {
         this.offline = offline;
-
-        // Try to update to the server once offline mode is disabled.
-        if (!offline) {
-            uploadEvents();
-        }
     }
 
     public void logEvent(String eventType) {
@@ -350,7 +355,7 @@ public class AmplitudeClient {
         }
 
         if (dbHelper.getEventCount() >= eventUploadThreshold) {
-            updateServer();
+            updateServer(null);
         } else {
             updateServerLater(eventUploadPeriodMillis);
         }
@@ -360,7 +365,7 @@ public class AmplitudeClient {
 
     private long getLastEventTime() {
         SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
+            getSharedPreferencesName(), Context.MODE_PRIVATE);
         return preferences.getLong(Constants.PREFKEY_PREVIOUS_SESSION_TIME, -1);
     }
 
@@ -459,7 +464,7 @@ public class AmplitudeClient {
                 long previousEndSessionId = getEndSessionId();
                 long lastEndSessionTime = getEndSessionTime();
                 if (previousEndSessionId != -1
-                        && now - lastEndSessionTime < minTimeBetweenSessionsMillis) {
+                    && now - lastEndSessionTime < minTimeBetweenSessionsMillis) {
                     DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
                     dbHelper.removeEvent(previousEndSessionId);
                 }
@@ -512,7 +517,7 @@ public class AmplitudeClient {
             }
         };
         logThread.postDelayed(endSessionRunnable,
-                minTimeBetweenSessionsMillis + 1000);
+            minTimeBetweenSessionsMillis + 1000);
     }
 
     public void logRevenue(double amount) {
@@ -595,6 +600,10 @@ public class AmplitudeClient {
     }
 
     public void uploadEvents() {
+        uploadEvents(null);
+    }
+
+    public void uploadEvents(final Amplitude.UploadCallback callback) {
         if (!contextAndApiKeySet("uploadEvents()")) {
             return;
         }
@@ -602,7 +611,7 @@ public class AmplitudeClient {
         logThread.post(new Runnable() {
             @Override
             public void run() {
-                updateServer();
+                updateServer(callback);
             }
         });
     }
@@ -616,18 +625,20 @@ public class AmplitudeClient {
             @Override
             public void run() {
                 updateScheduled.set(false);
-                updateServer();
+                updateServer(null);
             }
         }, delayMillis);
     }
 
-    protected void updateServer() {
-        updateServer(true);
+    protected void updateServer(Amplitude.UploadCallback callback) {
+        callback = callback == null? EMPTY: callback;
+        updateServer(true, callback);
     }
 
     // Always call this from logThread
-    protected void updateServer(boolean limit) {
+    protected void updateServer(boolean limit, final Amplitude.UploadCallback callback) {
         if (optOut || offline) {
+            callback.onComplete();
             return;
         }
 
@@ -642,18 +653,21 @@ public class AmplitudeClient {
                 httpThread.post(new Runnable() {
                     @Override
                     public void run() {
-                        makeEventUploadPostRequest(httpClient, events.toString(), maxId);
+                        makeEventUploadPostRequest(httpClient, events.toString(), maxId, callback);
                     }
                 });
             } catch (JSONException e) {
                 uploadingCurrently.set(false);
-                listener.onError(
-                    new AmplitudeException(e));
+                AmplitudeException aE = new AmplitudeException(e);
+                listener.onError(aE);
+                callback.onError(aE);
             }
+        } else {
+            callback.onComplete();
         }
     }
 
-    protected void makeEventUploadPostRequest(OkHttpClient client, String events, final long maxId) {
+    protected void makeEventUploadPostRequest(OkHttpClient client, String events, final long maxId, final Amplitude.UploadCallback callback) {
         String apiVersionString = "" + Constants.API_VERSION;
         String timestampString = "" + System.currentTimeMillis();
 
@@ -666,12 +680,12 @@ public class AmplitudeClient {
             // According to
             // http://stackoverflow.com/questions/5049524/is-java-utf-8-charset-exception-possible,
             // this will never be thrown
-            Log.e(TAG, e.toString());
+            listener.onError(new AmplitudeException(e));
         } catch (UnsupportedEncodingException e) {
             // According to
             // http://stackoverflow.com/questions/5049524/is-java-utf-8-charset-exception-possible,
             // this will never be thrown
-            Log.e(TAG, e.toString());
+            listener.onError(new AmplitudeException(e));
         }
 
         RequestBody body = new FormEncodingBuilder()
@@ -704,9 +718,11 @@ public class AmplitudeClient {
                             logThread.post(new Runnable() {
                                 @Override
                                 public void run() {
-                                    updateServer(false);
+                                    updateServer(false, callback);
                                 }
                             });
+                        } else {
+                            callback.onComplete();
                         }
                     }
                 });
@@ -729,15 +745,17 @@ public class AmplitudeClient {
             }
         } catch (AmplitudeException e){
             listener.onError(e);
+            callback.onError(e);
             lastError = e;
         } catch (Throwable e) {
-            listener.onError(
-                new AmplitudeException(e));
+            AmplitudeException aE = new AmplitudeException(e);
+            listener.onError(aE);
+            callback.onError(aE);
             lastError = e;
-        }
-
-        if (!uploadSuccess) {
-            uploadingCurrently.set(false);
+        } finally {
+            if (!uploadSuccess) {
+                uploadingCurrently.set(false);
+            }
         }
 
     }
