@@ -2,14 +2,11 @@ package com.amplitude.api;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
-import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Set;
 
 import com.squareup.okhttp.FormEncodingBuilder;
@@ -42,7 +39,14 @@ public class AmplitudeClient {
         return instance;
     }
 
+    private static final Amplitude.Listener ANDROID_LOG = new Amplitude.Listener() {
+        public void onError(AmplitudeException error) {
+            Log.e(TAG, "Amplitude error", error);
+        }
+    };
+
     protected Context context;
+    protected Amplitude.Listener listener = ANDROID_LOG;
     protected OkHttpClient httpClient;
     protected String apiKey;
     protected String userId;
@@ -97,20 +101,28 @@ public class AmplitudeClient {
         initialize(context, apiKey, null, null);
     }
 
-    public void initialize(Context context, String apiKey, OkHttpClient okHttpClient) {
-        initialize(context, apiKey, null, okHttpClient);
+    public void initialize(Context context, String apiKey, Amplitude.Listener listener) {
+        initialize(context, apiKey, null, null, listener);
     }
 
-    public synchronized void initialize(Context context, String apiKey, String userId, OkHttpClient okHttpClient) {
+    public void initialize(Context context, String apiKey, OkHttpClient okHttpClient, Amplitude.Listener listener) {
+        initialize(context, apiKey, null, okHttpClient, listener);
+    }
+
+    public synchronized void initialize(Context context, String apiKey, String userId, OkHttpClient okHttpClient, Amplitude.Listener listener) {
+        if (listener != null){
+            this.listener = listener;
+        }
         if (context == null) {
-            Log.e(TAG, "Argument context cannot be null in initialize()");
+            listener.onError(new AmplitudeException("Argument context cannot be null in initialize()"));
             return;
         }
 
-        AmplitudeClient.upgradePrefs(context);
+        AmplitudeClient.upgradePrefs(context, listener);
 
         if (TextUtils.isEmpty(apiKey)) {
-            Log.e(TAG, "Argument apiKey cannot be null or blank in initialize()");
+            listener.onError(
+                new AmplitudeException("Argument apiKey cannot be null or blank in initialize()"));
             return;
         }
         if (!initialized) {
@@ -235,7 +247,8 @@ public class AmplitudeClient {
 
     protected boolean validateLogEvent(String eventType) {
         if (TextUtils.isEmpty(eventType)) {
-            Log.e(TAG, "Argument eventType cannot be null or blank in logEvent()");
+            listener.onError(
+                new AmplitudeException("Argument eventType cannot be null or blank in logEvent()"));
             return false;
         }
 
@@ -321,7 +334,8 @@ public class AmplitudeClient {
             event.put("user_properties", (userProperties == null) ? new JSONObject()
                     : userProperties);
         } catch (JSONException e) {
-            Log.e(TAG, e.toString());
+            listener.onError(
+                new AmplitudeException(e));
         }
 
         return saveEvent(event);
@@ -527,6 +541,8 @@ public class AmplitudeClient {
             apiProperties.put("receipt", receipt);
             apiProperties.put("receiptSig", receiptSignature);
         } catch (JSONException e) {
+            listener.onError(
+                new AmplitudeException(e));
         }
 
         logEvent(REVENUE_EVENT, null, apiProperties, System.currentTimeMillis(), true);
@@ -559,7 +575,8 @@ public class AmplitudeClient {
                     try {
                         currentUserProperties.put(key, userProperties.get(key));
                     } catch (JSONException e) {
-                        Log.e(TAG, e.toString());
+                        listener.onError(
+                            new AmplitudeException(e));
                     }
                 }
             }
@@ -630,7 +647,8 @@ public class AmplitudeClient {
                 });
             } catch (JSONException e) {
                 uploadingCurrently.set(false);
-                Log.e(TAG, e.toString());
+                listener.onError(
+                    new AmplitudeException(e));
             }
         }
     }
@@ -693,35 +711,28 @@ public class AmplitudeClient {
                     }
                 });
             } else if (stringResponse.equals("invalid_api_key")) {
-                Log.e(TAG, "Invalid API key, make sure your API key is correct in initialize()");
+                throw
+                    new AmplitudeException(
+                        "Invalid API key, make sure your API key is correct in initialize()");
             } else if (stringResponse.equals("bad_checksum")) {
-                Log.w(TAG,
+                throw
+                    new AmplitudeException(
                         "Bad checksum, post request was mangled in transit, will attempt to reupload later");
             } else if (stringResponse.equals("request_db_write_failed")) {
-                Log.w(TAG,
+                throw
+                    new AmplitudeException(
                         "Couldn't write to request database on server, will attempt to reupload later");
             } else {
-                Log.w(TAG, "Upload failed, " + stringResponse
+                throw 
+                    new AmplitudeException("Upload failed, " + stringResponse
                         + ", will attempt to reupload later");
             }
-        } catch (org.apache.http.conn.HttpHostConnectException e) {
-            // Log.w(TAG,
-            // "No internet connection found, unable to upload events");
+        } catch (AmplitudeException e){
+            listener.onError(e);
             lastError = e;
-        } catch (java.net.UnknownHostException e) {
-            // Log.w(TAG,
-            // "No internet connection found, unable to upload events");
-            lastError = e;
-        } catch (IOException e) {
-            Log.e(TAG, e.toString());
-            lastError = e;
-        } catch (AssertionError e) {
-            // This can be caused by a NoSuchAlgorithmException thrown by DefaultHttpClient
-            Log.e(TAG, "Exception:", e);
-            lastError = e;
-        } catch (Exception e) {
-            // Just log any other exception so things don't crash on upload
-            Log.e(TAG, "Exception:", e);
+        } catch (Throwable e) {
+            listener.onError(
+                new AmplitudeException(e));
             lastError = e;
         }
 
@@ -789,14 +800,15 @@ public class AmplitudeClient {
 
     protected synchronized boolean contextAndApiKeySet(String methodName) {
         if (context == null) {
-            Log.e(TAG, "context cannot be null, set context with initialize() before calling "
-                    + methodName);
+            listener.onError(
+                new AmplitudeException("context cannot be null, set context with initialize() before calling "
+                    + methodName));
             return false;
         }
         if (TextUtils.isEmpty(apiKey)) {
-            Log.e(TAG,
-                    "apiKey cannot be null or empty, set apiKey with initialize() before calling "
-                            + methodName);
+            listener.onError(
+                new AmplitudeException("apiKey cannot be null or empty, set apiKey with initialize() before calling "
+                            + methodName));
             return false;
         }
         return true;
@@ -840,7 +852,8 @@ public class AmplitudeClient {
         try {
             return new JSONObject(obj, names);
         } catch (JSONException e) {
-            Log.e(TAG, e.toString());
+            listener.onError(
+                new AmplitudeException(e));
             return null;
         }
     }
@@ -859,11 +872,11 @@ public class AmplitudeClient {
      * This logic needs to remain in place for quite a long time. It was first introduced in
      * April 2015 in version 1.6.0.
      */
-    static boolean upgradePrefs(Context context) {
-        return upgradePrefs(context, null, null);
+    static boolean upgradePrefs(Context context, Amplitude.Listener listener) {
+        return upgradePrefs(context, null, null, listener);
     }
 
-    static boolean upgradePrefs(Context context, String sourcePkgName, String targetPkgName) {
+    static boolean upgradePrefs(Context context, String sourcePkgName, String targetPkgName, Amplitude.Listener listener) {
         try {
             if (sourcePkgName == null) {
                 // Try to load the package name using the old reflection strategy.
@@ -935,7 +948,8 @@ public class AmplitudeClient {
             return true;
 
         } catch (Exception e) {
-            Log.e(TAG, "Error upgrading shared preferences", e);
+            listener.onError(
+                new AmplitudeException("Error upgrading shared preferences", e));
             return false;
         }
     }}
