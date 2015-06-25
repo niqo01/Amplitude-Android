@@ -126,6 +126,7 @@ public class AmplitudeTest extends BaseTest {
 
         // Events should be sent after offline is turned off.
         amplitude.setOffline(false);
+        amplitude.uploadEvents();
         looper.runToEndOfTasks();
         looper.runToEndOfTasks();
         httplooper.runToEndOfTasks();

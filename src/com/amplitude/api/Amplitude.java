@@ -10,6 +10,11 @@ public class Amplitude {
         void onError(AmplitudeException error);
     }
 
+    public interface UploadCallback {
+        void onComplete();
+        void onError(AmplitudeException error);
+    }
+
     public static AmplitudeClient getInstance() {
         return AmplitudeClient.getInstance();
     }
