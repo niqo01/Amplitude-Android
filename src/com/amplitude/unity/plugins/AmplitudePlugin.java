@@ -10,11 +10,11 @@ import com.amplitude.api.Amplitude;
 public class AmplitudePlugin {
 
     public static void init(Context context, String apiKey) {
-        Amplitude.getInstance().initialize(context, apiKey);
+        Amplitude.getInstance().initialize(context, apiKey, null);
     }
 
     public static void init(Context context, String apiKey, String userId) {
-        Amplitude.getInstance().initialize(context, apiKey, userId, null);
+        Amplitude.getInstance().initialize(context, apiKey, userId, null, null);
     }
 
     public static void startSession() {

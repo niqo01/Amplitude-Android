@@ -1,12 +1,14 @@
 package com.amplitude.api;
 
-import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import android.content.Context;
 
 public class Amplitude {
+
+    public interface Listener {
+        void onError(AmplitudeException error);
+    }
 
     public static AmplitudeClient getInstance() {
         return AmplitudeClient.getInstance();
@@ -14,12 +16,12 @@ public class Amplitude {
 
     @Deprecated
     public static void initialize(Context context, String apiKey) {
-        getInstance().initialize(context, apiKey);
+        getInstance().initialize(context, apiKey, null);
     }
 
     @Deprecated
     public static void initialize(Context context, String apiKey, String userId) {
-        getInstance().initialize(context, apiKey, userId, null);
+        getInstance().initialize(context, apiKey, userId, null, null);
     }
 
     @Deprecated
