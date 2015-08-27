@@ -16,11 +16,11 @@
 
     <property environment="env" />
     <property name="android-sdk-path" value="${env.ANDROID_HOME}" />
-    <property name="android-target" value="19" />
+    <property name="android-target" value="22" />
 
     <property name="groupId" value="com.amplitude" />
     <property name="artifactId" value="amplitude-android" />
-    <property name="version" value="1.7.0" />
+    <property name="version" value="2.0.2" />
 
     <property name="jar" value="${dist}/lib/${artifactId}-${version}.jar" />
     <property name="uberjar" value="${dist}/lib/${artifactId}-${version}-with-dependencies.jar" />
@@ -84,32 +84,30 @@
     </target>
 
     <target name="jar" depends="build">
-        <jar destfile="${jar}" basedir="${build}" includes="com/amplitude/api/*.class" />
+        <jar destfile="${jar}" basedir="${build}" includes="com/amplitude/api/*.class, com/amplitude/security/*.class" />
         <jar destfile="${uberjar}">
-            <fileset dir="${build}" includes="com/amplitude/api/*.class" />
+            <fileset dir="${build}" includes="com/amplitude/api/*.class, com/amplitude/security/*.class" />
             <zipgroupfileset id="dependency.fileset" dir="/" includes="${dependency.list}"/>
         </jar>
     </target>
 
     <target name="unity" depends="build" description="creates jar for unity plugin">
         <jar destfile="${unity-jar}">
-            <fileset dir="${build}" includes="com/amplitude/api/*.class" />
-            <fileset dir="${src}" includes="com/amplitude/api/*.java" />
-            <fileset dir="${build}" includes="com/amplitude/unity/plugins/*.class" />
-            <fileset dir="${src}" includes="com/amplitude/unity/plugins/*.java" />
+            <fileset dir="${build}" includes="com/amplitude/api/*.class, com/amplitude/unity/plugins/*.class, com/amplitude/security/*.class" />
+            <fileset dir="${src}" includes="com/amplitude/api/*.java, com/amplitude/unity/plugins/*.java, com/amplitude/security/*.java" />
             <zipgroupfileset id="dependency.fileset" dir="/" includes="${dependency.list}"/>
         </jar>
     </target>
 
     <target name="dist" depends="jar" description="creates release jar with javadoc and sources">
         <javadoc classpathref="project.classpath" sourcepath="${src}" destdir="${dist}/javadoc">
-            <fileset dir="${src}" includes="com/amplitude/api/*.java" />
+            <fileset dir="${src}" includes="com/amplitude/api/*.java, com/amplitude/security/*.java" />
         </javadoc>
         <jar jarfile="${javadoc-jar}">
             <fileset dir="${dist}/javadoc" />
         </jar>
         <jar jarfile="${sources-jar}">
-            <fileset dir="${src}" includes="com/amplitude/api/*.java" />
+            <fileset dir="${src}" includes="com/amplitude/api/*.java, com/amplitude/security/*.java" />
         </jar>
         <copy file="${jar}" todir="."/>
         <copy file="${uberjar}" todir="."/>

@@ -1,24 +1,28 @@
 package com.amplitude.api;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.fail;
 
 import java.util.Locale;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.Mockito;
+import org.powermock.api.mockito.PowerMockito;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.rule.PowerMockRule;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
 import org.robolectric.internal.ShadowExtractor;
 import org.robolectric.shadows.ShadowApplication;
 import org.robolectric.shadows.ShadowGeocoder;
-import org.robolectric.shadows.ShadowLocation;
 import org.robolectric.shadows.ShadowLocationManager;
 import org.robolectric.shadows.ShadowTelephonyManager;
 import org.robolectric.util.ReflectionHelpers;
@@ -31,7 +35,12 @@ import android.location.LocationManager;
 import android.os.Build;
 import android.telephony.TelephonyManager;
 
+import com.google.android.gms.ads.identifier.AdvertisingIdClient;
+
+
 @RunWith(RobolectricTestRunner.class)
+@PowerMockIgnore({ "org.mockito.*", "org.robolectric.*", "android.*" })
+@PrepareForTest(AdvertisingIdClient.class)
 @Config(manifest = Config.NONE)
 public class DeviceInfoTest {
 
@@ -57,6 +66,9 @@ public class DeviceInfoTest {
         l.setTime(System.currentTimeMillis());
         return l;
     }
+
+    @Rule
+    public PowerMockRule rule = new PowerMockRule();
 
     @Before
     public void setUp() throws Exception {
@@ -115,11 +127,22 @@ public class DeviceInfoTest {
         ShadowTelephonyManager manager = Shadows.shadowOf((TelephonyManager) context
                 .getSystemService(Context.TELEPHONY_SERVICE));
         manager.setNetworkCountryIso(TEST_NETWORK_COUNTRY);
+
+        DeviceInfo deviceInfo = new DeviceInfo(context);
         assertEquals(TEST_NETWORK_COUNTRY, deviceInfo.getCountry());
     }
 
     @Test
     public void testGetCountryFromLocation() {
+        ShadowTelephonyManager telephonyManager = Shadows.shadowOf((TelephonyManager) context
+                .getSystemService(Context.TELEPHONY_SERVICE));
+        telephonyManager.setNetworkCountryIso(TEST_NETWORK_COUNTRY);
+        ShadowLocationManager locationManager = Shadows.shadowOf((LocationManager) context
+                .getSystemService(Context.LOCATION_SERVICE));
+        locationManager.simulateLocation(makeLocation(LocationManager.NETWORK_PROVIDER,
+                TEST_LOCATION_LAT, TEST_LOCATION_LNG));
+        locationManager.setProviderEnabled(LocationManager.NETWORK_PROVIDER, true);
+
         DeviceInfo deviceInfo = new DeviceInfo(context) {
             @Override
             protected Geocoder getGeocoder() {
@@ -130,14 +153,7 @@ public class DeviceInfoTest {
                 return geocoder;
             };
         };
-        ShadowTelephonyManager telephonyManager = Shadows.shadowOf((TelephonyManager) context
-                .getSystemService(Context.TELEPHONY_SERVICE));
-        telephonyManager.setNetworkCountryIso(TEST_NETWORK_COUNTRY);
-        ShadowLocationManager locationManager = Shadows.shadowOf((LocationManager) context
-                .getSystemService(Context.LOCATION_SERVICE));
-        locationManager.simulateLocation(makeLocation(LocationManager.NETWORK_PROVIDER,
-                TEST_LOCATION_LAT, TEST_LOCATION_LNG));
-        locationManager.setProviderEnabled(LocationManager.NETWORK_PROVIDER, true);
+
         assertEquals(TEST_GEO_COUNTRY, deviceInfo.getCountry());
     }
 
@@ -148,7 +164,23 @@ public class DeviceInfoTest {
 
     @Test
     public void testGetAdvertisingId() {
-        // TODO (curtis): Not sure how to do this yet.
+        PowerMockito.mockStatic(AdvertisingIdClient.class);
+        String advertisingId = "advertisingId";
+        AdvertisingIdClient.Info info = new AdvertisingIdClient.Info(
+                advertisingId,
+                false
+        );
+
+        try {
+            Mockito.when(AdvertisingIdClient.getAdvertisingIdInfo(context)).thenReturn(info);
+        } catch (Exception e) {
+            fail(e.toString());
+        }
+        DeviceInfo deviceInfo = new DeviceInfo(context);
+
+        // still get advertisingId even if limit ad tracking disabled
+        assertEquals(advertisingId, deviceInfo.getAdvertisingId());
+        assertFalse(deviceInfo.isLimitAdTrackingEnabled());
     }
 
     @Test

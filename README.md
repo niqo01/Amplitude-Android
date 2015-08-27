@@ -10,22 +10,22 @@ A [demo application](https://github.com/amplitude/Android-Demo) is available to 
 # Setup #
 1. If you haven't already, go to https://amplitude.com/signup and register for an account. Then, add an app. You will receive an API Key.
 
-2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-1.7.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
+2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.0.2-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
 
-  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C1.7.0%7Cjar) using the following configuration in your pom.xml:
+  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.0.2%7Cjar) using the following configuration in your pom.xml:
 
     ```
     <dependency>
       <groupId>com.amplitude</groupId>
       <artifactId>android-sdk</artifactId>
-      <version>1.7.0</version>
+      <version>2.0.2</version>
     </dependency>
     ```
 
   Or if you are using gradle in your project, include in your build.gradle file:
 
     ```
-    compile 'com.amplitude:android-sdk:1.7.0'
+    compile 'com.amplitude:android-sdk:2.0.2'
     ```
 
 4.  In every file that uses analytics, import com.amplitude.api.Amplitude at the top:
@@ -37,37 +37,25 @@ A [demo application](https://github.com/amplitude/Android-Demo) is available to 
 5. In the `onCreate()` of your main activity, initialize the SDK:
 
     ```java
-    Amplitude.getInstance().initialize(this, "YOUR_API_KEY_HERE");
+    Amplitude.getInstance().initialize(this, "YOUR_API_KEY_HERE").enableForegroundTracking(getApplication());
     ```
 
-6. Add a `startSession()` call to each `onResume()` in every activity in your app:
-
-    ```java
-    Amplitude.getInstance().startSession();
-    ```
-
-7. Add an `endSession()` call to each `onPause()` in every activity in your app. This call also ensures data is uploaded before the app closes:
-
-    ```java
-    Amplitude.getInstance().endSession();
-    ```
-
-8. To track an event anywhere in the app, call:
+6. To track an event anywhere in the app, call:
 
     ```java
     Amplitude.getInstance().logEvent("EVENT_IDENTIFIER_HERE");
     ```
 
-9. If you want to use Google Advertising IDs, make sure to add [Google Play Services](https://developer.android.com/google/play-services/setup.html) to your project. _This is required for integrating with third party attribution services_
+7. If you want to use Google Advertising IDs, make sure to add [Google Play Services](https://developer.android.com/google/play-services/setup.html) to your project. _This is required for integrating with third party attribution services_
 
-10. If you are using Proguard, add these exceptions to ```proguard.pro``` for Google Play Advertising IDs and Amplitude dependencies:
+8. If you are using Proguard, add these exceptions to ```proguard.pro``` for Google Play Advertising IDs and Amplitude dependencies:
 
     ```yaml
         -keep class com.google.android.gms.ads.** { *; }
         -dontwarn okio.**
     ```
 
-11. Events are saved locally. Uploads are batched to occur every 30 events and every 30 seconds. After calling `logEvent()` in your app, you will immediately see data appear on the Amplitude website.
+9. Events are saved locally. Uploads are batched to occur every 30 events and every 30 seconds. After calling `logEvent()` in your app, you will immediately see data appear on the Amplitude website.
 
 # Tracking Events #
 
@@ -75,9 +63,25 @@ It's important to think about what types of events you care about as a developer
 
 # Tracking Sessions #
 
-A session is a period of time that a user has the app in the foreground. Calls to `startSession()` and `endSession()` track the duration of a session. Sessions within 10 seconds of each other are merged into a single session when they are reported in Amplitude.
+A session is a period of time that a user has the app in the foreground. Events that are logged within the same session will have the same `session_id`. Sessions are handled automatically now; you no longer have to manually call `startSession()` or `endSession()`.
 
-Calling `startSession()` in `onResume()` will generate a start session event every time the app regains focus or comes out of a locked screen. Calling `endSession()` in `onPause()` will generate an end session event every time the foreground activity loses focus or the screen becomes locked. If you'd prefer to only log session starts and ends when the app is no longer visible, instead of no longer in focus, you can place the `startSession()` and `endSession()` calls in `onStart()` and `onStop()`, respectively. Note that `onStart()` and `onStop()` are not called when a user unlocks and locks the screen.
+* For Android API level 14+, a new session is created when the app comes back into the foreground after being out of the foreground for 5 minutes or more. (Note you can define your own session experiation time by calling `setMinTimeBetweenSessionsMillis(timeout)`, where the timeout input is in milliseconds.)
+
+* For Android API level 13 and below, foreground tracking is not available, so a new session is automatically started when an event is logged 30 minutes or more after the last logged event. If another event is logged within 30 minutes, it will extend the current session. (Note you can define your own session expiration time by calling `setSessionTimeoutMillis(timeout)`, where the timeout input is in milliseconds. Also note, `enableForegroundTracking(getApplication)` is still safe to call for Android API level 13 and below, even though it is not available.)
+
+Other Session Options:
+
+1.  By default start and end session events are no longer sent. To renable add this line after initializing the SDK:
+
+    ```java
+    Amplitude.getInstance().trackSessionEvents(true);
+    ```
+
+2. You can also log events as out of session. Out of session events have a `session_id` of `-1` and are not considered part of the current session, meaning they do not extend the current session (useful for things like push notifications). You can log events as out of session by setting input parameter `outOfSession` to `true` when calling `logEvent()`:
+
+    ```java
+    Amplitude.getInstance().logEvent("EVENT", null, true);
+    ```
 
 # Setting Custom User IDs #
 

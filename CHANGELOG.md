@@ -1,5 +1,25 @@
 ## Unreleased
 
+## 2.0.2 (August 24, 2015)
+
+* Fixed Maven jar, fixed build file
+
+## 2.0.1 (August 21, 2015)
+
+* Catch all exceptions thrown by Android TelephonyManager and NullPointerExceptions thrown by geocoder during country lookup.
+
+## 2.0.0 (August 20, 2015)
+
+* Expose user ID with getUserId.
+* Simplified session tracking. No longer need to call startSession and endSession. No longer send start/end session events by default. Added foreground tracking for sessions that uses Android activity lifecycles.
+* The minimum supported API level is 9. API level 14 is required for foreground tracking.
+* Always track Android advertising ID (ADID) regardless of limit ad tracking enabled.
+* Track if limit ad tracking enabled as an API property for each logged event.
+* Database upgraded to version 2: added a new store table for key value pairs.
+* Device ID is now saved to and reloaded from the SQLite database (instead of SharedPrefs because SharedPrefs currently does not support multiple processes).
+* MessageDigest.getInstance(String) is not threadsafe (known Android issue). Replaced with alternate MD5 implementation from http://org.rodage.com/pub/java/security/MD5.java.
+* Create a copy of input userProperties JSONObject in setUserProperties to try and prevent ConcurrentModificationException.
+
 ## 1.7.0 (May 29, 2015)
 
 * Enable configuration of eventUploadThreshold, eventMaxCount,

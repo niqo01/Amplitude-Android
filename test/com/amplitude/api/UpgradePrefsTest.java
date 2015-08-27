@@ -2,23 +2,16 @@ package com.amplitude.api;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.squareup.okhttp.mockwebserver.RecordedRequest;
-
-import org.json.JSONException;
-import org.json.JSONObject;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowApplication;
-import org.robolectric.shadows.ShadowLooper;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -56,10 +49,7 @@ public class UpgradePrefsTest extends BaseTest {
     public void testUpgrade() {
         String sourceName = "com.amplitude.a" + "." + context.getPackageName();
         context.getSharedPreferences(sourceName, Context.MODE_PRIVATE).edit()
-                .putLong("com.amplitude.a.previousSessionTime", 100L)
-                .putLong("com.amplitude.a.previousEndSessionTime", 200L)
-                .putLong("com.amplitude.a.previousEndSessionId", 300L)
-                .putLong("com.amplitude.a.previousSessionId", 400L)
+                .putLong("com.amplitude.a.previousSessionId", 100L)
                 .putString("com.amplitude.a.deviceId", "deviceid")
                 .putString("com.amplitude.a.userId", "userid")
                 .putBoolean("com.amplitude.a.optOut", true)
@@ -69,10 +59,7 @@ public class UpgradePrefsTest extends BaseTest {
 
         String targetName = Constants.PACKAGE_NAME + "." + context.getPackageName();
         SharedPreferences target = context.getSharedPreferences(targetName, Context.MODE_PRIVATE);
-        assertEquals(target.getLong(Constants.PREFKEY_PREVIOUS_SESSION_TIME, -1), 100L);
-        assertEquals(target.getLong(Constants.PREFKEY_PREVIOUS_END_SESSION_TIME, -1), 200L);
-        assertEquals(target.getLong(Constants.PREFKEY_PREVIOUS_END_SESSION_ID, -1), 300L);
-        assertEquals(target.getLong(Constants.PREFKEY_PREVIOUS_SESSION_ID, -1), 400L);
+        assertEquals(target.getLong(Constants.PREFKEY_PREVIOUS_SESSION_ID, -1), 100L);
         assertEquals(target.getString(Constants.PREFKEY_DEVICE_ID, null), "deviceid");
         assertEquals(target.getString(Constants.PREFKEY_USER_ID, null), "userid");
         assertEquals(target.getBoolean(Constants.PREFKEY_OPT_OUT, false), true);
@@ -101,7 +88,7 @@ public class UpgradePrefsTest extends BaseTest {
     public void testUpgradePartial() {
         String sourceName = "partial" + "." + context.getPackageName();
         context.getSharedPreferences(sourceName, Context.MODE_PRIVATE).edit()
-                .putLong("partial.previousSessionTime", 100L)
+                .putLong("partial.lastEventTime", 100L)
                 .putString("partial.deviceId", "deviceid")
                 .commit();
 
@@ -109,9 +96,6 @@ public class UpgradePrefsTest extends BaseTest {
 
         String targetName = Constants.PACKAGE_NAME + "." + context.getPackageName();
         SharedPreferences target = context.getSharedPreferences(targetName, Context.MODE_PRIVATE);
-        assertEquals(target.getLong(Constants.PREFKEY_PREVIOUS_SESSION_TIME, -1), 100L);
-        assertEquals(target.getLong(Constants.PREFKEY_PREVIOUS_END_SESSION_TIME, -1), -1);
-        assertEquals(target.getLong(Constants.PREFKEY_PREVIOUS_END_SESSION_ID, -1), -1);
         assertEquals(target.getLong(Constants.PREFKEY_PREVIOUS_SESSION_ID, -1), -1);
         assertEquals(target.getString(Constants.PREFKEY_DEVICE_ID, null), "deviceid");
         assertEquals(target.getString(Constants.PREFKEY_USER_ID, null), null);
@@ -121,4 +105,70 @@ public class UpgradePrefsTest extends BaseTest {
         assertEquals(size, 0);
     }
 
+    @Test
+    public void testUpgradeDeviceIdToDB() {
+        String deviceId = "device_id";
+        String sourceName = Constants.PACKAGE_NAME + "." + context.getPackageName();
+        SharedPreferences prefs = context.getSharedPreferences(sourceName, Context.MODE_PRIVATE);
+        prefs.edit().putString(Constants.PREFKEY_DEVICE_ID, deviceId).commit();
+
+        assertTrue(AmplitudeClient.upgradeDeviceIdToDB(context));
+        assertEquals(
+            DatabaseHelper.getDatabaseHelper(context).getValue(AmplitudeClient.DEVICE_ID_KEY),
+            deviceId
+        );
+
+        // deviceId should be removed from sharedPrefs after upgrade
+        assertNull(prefs.getString(Constants.PREFKEY_DEVICE_ID, null));
+    }
+
+    @Test
+    public void testUpgradeDeviceIdToDBEmpty() {
+        assertTrue(AmplitudeClient.upgradeDeviceIdToDB(context));
+        assertNull(
+            DatabaseHelper.getDatabaseHelper(context).getValue(AmplitudeClient.DEVICE_ID_KEY)
+        );
+    }
+
+    @Test
+    public void testUpgradeDeviceIdFromLegacyToDB() {
+        String deviceId = "device_id";
+        String legacyPkgName = "com.amplitude.a";
+        String sourceName = legacyPkgName + "." + context.getPackageName();
+        context.getSharedPreferences(sourceName, Context.MODE_PRIVATE).edit()
+                .putString(legacyPkgName + ".deviceId", deviceId)
+                .commit();
+
+        assertTrue(AmplitudeClient.upgradePrefs(context, legacyPkgName, null));
+        assertTrue(AmplitudeClient.upgradeDeviceIdToDB(context));
+
+        String targetName = Constants.PACKAGE_NAME + "." + context.getPackageName();
+        SharedPreferences target = context.getSharedPreferences(targetName, Context.MODE_PRIVATE);
+        assertEquals(
+            DatabaseHelper.getDatabaseHelper(context).getValue(AmplitudeClient.DEVICE_ID_KEY),
+            deviceId
+        );
+
+        // deviceId should be removed from sharedPrefs after upgrade
+        assertNull(target.getString(Constants.PREFKEY_DEVICE_ID, null));
+    }
+
+    @Test
+    public void testUpgradeDeviceIdFromLegacyToDBEmpty() {
+        String legacyPkgName = "com.amplitude.a";
+        String sourceName = legacyPkgName + "." + context.getPackageName();
+        context.getSharedPreferences(sourceName, Context.MODE_PRIVATE).edit()
+                .putLong("partial.lastEventTime", 100L)
+                .commit();
+
+        assertTrue(AmplitudeClient.upgradePrefs(context, legacyPkgName, null));
+        assertTrue(AmplitudeClient.upgradeDeviceIdToDB(context));
+
+        String targetName = Constants.PACKAGE_NAME + "." + context.getPackageName();
+        SharedPreferences target = context.getSharedPreferences(targetName, Context.MODE_PRIVATE);
+        assertNull(target.getString(Constants.PREFKEY_DEVICE_ID, null));
+        assertNull(
+            DatabaseHelper.getDatabaseHelper(context).getValue(AmplitudeClient.DEVICE_ID_KEY)
+        );
+    }
 }

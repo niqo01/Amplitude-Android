@@ -1,9 +1,9 @@
 package com.amplitude.api;
 
-import java.io.IOException;
+import com.amplitude.security.MD5;
+
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -18,9 +18,11 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.location.Location;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
@@ -32,6 +34,7 @@ public class AmplitudeClient {
     public static final String START_SESSION_EVENT = "session_start";
     public static final String END_SESSION_EVENT = "session_end";
     public static final String REVENUE_EVENT = "revenue_amount";
+    public static final String DEVICE_ID_KEY = "device_id";
 
     protected static AmplitudeClient instance = new AmplitudeClient();
 
@@ -68,30 +71,22 @@ public class AmplitudeClient {
     private boolean offline = false;
 
     private DeviceInfo deviceInfo;
-    private String advertisingId;
-    private String versionName;
-    private String osName;
-    private String osVersion;
-    private String brand;
-    private String manufacturer;
-    private String model;
-    private String carrier;
-    private String country;
-    private String language;
 
     /* VisibleForTesting */
     JSONObject userProperties;
 
     private long sessionId = -1;
-    private boolean sessionOpen = false;
     private int eventUploadThreshold = Constants.EVENT_UPLOAD_THRESHOLD;
     private int eventUploadMaxBatchSize = Constants.EVENT_UPLOAD_MAX_BATCH_SIZE;
     private int eventMaxCount = Constants.EVENT_MAX_COUNT;
     private long eventUploadPeriodMillis = Constants.EVENT_UPLOAD_PERIOD_MILLIS;
     private long minTimeBetweenSessionsMillis = Constants.MIN_TIME_BETWEEN_SESSIONS_MILLIS;
     private long sessionTimeoutMillis = Constants.SESSION_TIMEOUT_MILLIS;
-
-    private Runnable endSessionRunnable;
+    private boolean backoffUpload = false;
+    private int backoffUploadBatchSize = eventUploadMaxBatchSize;
+    private boolean usingForegroundTracking = false;
+    private boolean trackingSessionEvents = false;
+    private boolean inForeground = false;
 
     private AtomicBoolean updateScheduled = new AtomicBoolean(false);
     private AtomicBoolean uploadingCurrently = new AtomicBoolean(false);
@@ -107,33 +102,34 @@ public class AmplitudeClient {
         httpThread.start();
     }
 
-    public void initialize(Context context, String apiKey) {
-        initialize(context, apiKey, null, null);
+    public AmplitudeClient initialize(Context context, String apiKey) {
+        return initialize(context, apiKey, null, null);
     }
 
-    public void initialize(Context context, String apiKey, Amplitude.Listener listener) {
-        initialize(context, apiKey, null, null, listener);
+    public AmplitudeClient initialize(Context context, String apiKey, Amplitude.Listener listener) {
+        return initialize(context, apiKey, null, null, listener);
     }
 
-    public void initialize(Context context, String apiKey, OkHttpClient okHttpClient, Amplitude.Listener listener) {
-        initialize(context, apiKey, null, okHttpClient, listener);
+    public AmplitudeClient initialize(Context context, String apiKey, OkHttpClient okHttpClient, Amplitude.Listener listener) {
+        return initialize(context, apiKey, null, okHttpClient, listener);
     }
 
-    public synchronized void initialize(Context context, String apiKey, String userId, OkHttpClient okHttpClient, Amplitude.Listener listener) {
+    public synchronized AmplitudeClient initialize(Context context, String apiKey, String userId, OkHttpClient okHttpClient, Amplitude.Listener listener) {
         if (listener != null){
             this.listener = listener;
         }
         if (context == null) {
             listener.onError(new AmplitudeException("Argument context cannot be null in initialize()"));
-            return;
+            return instance;
         }
 
         AmplitudeClient.upgradePrefs(context, listener);
+        AmplitudeClient.upgradeDeviceIdToDB(context);
 
         if (TextUtils.isEmpty(apiKey)) {
-            listener.onError(
-                new AmplitudeException("Argument apiKey cannot be null or blank in initialize()"));
-            return;
+            Log.e(TAG, "Argument apiKey cannot be null or blank in initialize()");
+            return instance;
+
         }
         if (!initialized) {
             this.context = context.getApplicationContext();
@@ -151,6 +147,20 @@ public class AmplitudeClient {
             this.optOut = preferences.getBoolean(Constants.PREFKEY_OPT_OUT, false);
             initialized = true;
         }
+
+        return instance;
+    }
+
+    public AmplitudeClient enableForegroundTracking(Application app) {
+        if (usingForegroundTracking) {
+            return instance;
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
+            app.registerActivityLifecycleCallbacks(new AmplitudeCallbacks(instance));
+        }
+
+        return instance;
     }
 
     private void initializeDeviceInfo() {
@@ -160,93 +170,115 @@ public class AmplitudeClient {
             @Override
             public void run() {
                 deviceId = initializeDeviceId();
-                advertisingId = deviceInfo.getAdvertisingId();
-                versionName = deviceInfo.getVersionName();
-                osName = deviceInfo.getOSName();
-                osVersion = deviceInfo.getOSVersion();
-                brand = deviceInfo.getBrand();
-                manufacturer = deviceInfo.getManufacturer();
-                model = deviceInfo.getModel();
-                carrier = deviceInfo.getCarrier();
-                country = deviceInfo.getCountry();
-                language = deviceInfo.getLanguage();
+                deviceInfo.prefetch();
             }
         });
     }
 
-    public void enableNewDeviceIdPerInstall(boolean newDeviceIdPerInstall) {
+    public AmplitudeClient enableNewDeviceIdPerInstall(boolean newDeviceIdPerInstall) {
         this.newDeviceIdPerInstall = newDeviceIdPerInstall;
+        return instance;
     }
 
-    public void useAdvertisingIdForDeviceId() {
+    public AmplitudeClient useAdvertisingIdForDeviceId() {
         this.useAdvertisingIdForDeviceId = true;
+        return instance;
     }
 
-    public void enableLocationListening() {
+    public AmplitudeClient enableLocationListening() {
         if (deviceInfo == null) {
             throw new IllegalStateException(
                     "Must initialize before acting on location listening.");
         }
         deviceInfo.setLocationListening(true);
+        return instance;
     }
 
-    public void disableLocationListening() {
+    public AmplitudeClient disableLocationListening() {
         if (deviceInfo == null) {
             throw new IllegalStateException(
                     "Must initialize before acting on location listening.");
         }
         deviceInfo.setLocationListening(false);
+        return instance;
     }
 
-    public void setEventUploadThreshold(int eventUploadThreshold) {
+    public AmplitudeClient setEventUploadThreshold(int eventUploadThreshold) {
         this.eventUploadThreshold = eventUploadThreshold;
+        return instance;
     }
 
-    public void setEventUploadMaxBatchSize(int eventUploadMaxBatchSize) {
+    public AmplitudeClient setEventUploadMaxBatchSize(int eventUploadMaxBatchSize) {
         this.eventUploadMaxBatchSize = eventUploadMaxBatchSize;
+        this.backoffUploadBatchSize = eventUploadMaxBatchSize;
+        return instance;
     }
 
-    public void setEventMaxCount(int eventMaxCount) {
+    public AmplitudeClient setEventMaxCount(int eventMaxCount) {
         this.eventMaxCount = eventMaxCount;
+        return instance;
     }
 
-    public void setEventUploadPeriodMillis(int eventUploadPeriodMillis) {
+    public AmplitudeClient setEventUploadPeriodMillis(int eventUploadPeriodMillis) {
         this.eventUploadPeriodMillis = eventUploadPeriodMillis;
+        return instance;
     }
 
-    public void setMinTimeBetweenSessionsMillis(int minTimeBetweenSessionsMillis) {
+    public AmplitudeClient setMinTimeBetweenSessionsMillis(long minTimeBetweenSessionsMillis) {
         this.minTimeBetweenSessionsMillis = minTimeBetweenSessionsMillis;
+        return instance;
     }
 
-    public void setSessionTimeoutMillis(long sessionTimeoutMillis) {
+    public AmplitudeClient setSessionTimeoutMillis(long sessionTimeoutMillis) {
         this.sessionTimeoutMillis = sessionTimeoutMillis;
+        return instance;
     }
 
-    public void setOptOut(boolean optOut) {
+    public AmplitudeClient setOptOut(boolean optOut) {
         this.optOut = optOut;
 
         SharedPreferences preferences = context.getSharedPreferences(
                 getSharedPreferencesName(), Context.MODE_PRIVATE);
         preferences.edit().putBoolean(Constants.PREFKEY_OPT_OUT, optOut).commit();
+        return instance;
     }
 
-    public void setOffline(boolean offline) {
+    public AmplitudeClient setOffline(boolean offline) {
         this.offline = offline;
+        return instance;
     }
+
+    public AmplitudeClient trackSessionEvents(boolean trackingSessionEvents) {
+        this.trackingSessionEvents = trackingSessionEvents;
+        return instance;
+    }
+
+    void useForegroundTracking() {
+        usingForegroundTracking = true;
+
+    }
+
+    boolean isUsingForegroundTracking() { return usingForegroundTracking; }
+
+    boolean isInForeground() { return inForeground; }
 
     public void logEvent(String eventType) {
         logEvent(eventType, null);
     }
 
     public void logEvent(String eventType, JSONObject eventProperties) {
+        logEvent(eventType, eventProperties, false);
+    }
+
+    public void logEvent(String eventType, JSONObject eventProperties, boolean outOfSession) {
         if (validateLogEvent(eventType)) {
-            logEventAsync(eventType, eventProperties, null, System.currentTimeMillis(), true);
+            logEventAsync(eventType, eventProperties, null, System.currentTimeMillis(), outOfSession);
         }
     }
 
     public void logEventSync(String eventType, JSONObject eventProperties) {
         if (validateLogEvent(eventType)) {
-            logEvent(eventType, eventProperties, null, System.currentTimeMillis(), true);
+            logEvent(eventType, eventProperties, null, System.currentTimeMillis(), false);
         }
     }
 
@@ -265,8 +297,8 @@ public class AmplitudeClient {
     }
 
     protected void logEventAsync(final String eventType, JSONObject eventProperties,
-            final JSONObject apiProperties, final long timestamp, final boolean checkSession) {
-        // Clone the incoming eventProperties object before sendinging over
+            final JSONObject apiProperties, final long timestamp, final boolean outOfSession) {
+        // Clone the incoming eventProperties object before sending over
         // to the log thread. Helps avoid ConcurrentModificationException
         // if the caller starts mutating the object they passed in.
         // Only does a shallow copy, so it's still possible, though unlikely,
@@ -279,41 +311,48 @@ public class AmplitudeClient {
         runOnLogThread(new Runnable() {
             @Override
             public void run() {
-                logEvent(eventType, copyEventProperties, apiProperties, timestamp, checkSession);
+                logEvent(eventType, copyEventProperties, apiProperties, timestamp, outOfSession);
             }
         });
     }
 
     protected long logEvent(String eventType, JSONObject eventProperties,
-            JSONObject apiProperties, long timestamp, boolean checkSession) {
+            JSONObject apiProperties, long timestamp, boolean outOfSession) {
         Log.d(TAG, "Logged event to Amplitude: " + eventType);
 
         if (optOut) {
             return -1;
         }
-        if (checkSession) {
-            startNewSessionIfNeeded(timestamp);
+
+        // skip session check if logging start_session or end_session events
+        boolean loggingSessionEvent = trackingSessionEvents &&
+                (eventType.equals(START_SESSION_EVENT) || eventType.equals(END_SESSION_EVENT));
+
+        if (!loggingSessionEvent && !outOfSession) {
+            // default case + corner case when async logEvent between onPause and onResume
+            if (!inForeground){
+                startNewSessionIfNeeded(timestamp);
+            } else {
+                refreshSessionTime(timestamp);
+            }
         }
-        setLastEventTime(timestamp);
 
         JSONObject event = new JSONObject();
         try {
             event.put("event_type", replaceWithJSONNull(eventType));
-
             event.put("timestamp", timestamp);
-            event.put("user_id", (userId == null) ? replaceWithJSONNull(deviceId)
-                    : replaceWithJSONNull(userId));
+            event.put("user_id", replaceWithJSONNull(userId));
             event.put("device_id", replaceWithJSONNull(deviceId));
-            event.put("session_id", sessionId);
-            event.put("version_name", replaceWithJSONNull(versionName));
-            event.put("os_name", replaceWithJSONNull(osName));
-            event.put("os_version", replaceWithJSONNull(osVersion));
-            event.put("device_brand", replaceWithJSONNull(brand));
-            event.put("device_manufacturer", replaceWithJSONNull(manufacturer));
-            event.put("device_model", replaceWithJSONNull(model));
-            event.put("carrier", replaceWithJSONNull(carrier));
-            event.put("country", replaceWithJSONNull(country));
-            event.put("language", replaceWithJSONNull(language));
+            event.put("session_id", outOfSession ? -1 : sessionId);
+            event.put("version_name", replaceWithJSONNull(deviceInfo.getVersionName()));
+            event.put("os_name", replaceWithJSONNull(deviceInfo.getOsName()));
+            event.put("os_version", replaceWithJSONNull(deviceInfo.getOsVersion()));
+            event.put("device_brand", replaceWithJSONNull(deviceInfo.getBrand()));
+            event.put("device_manufacturer", replaceWithJSONNull(deviceInfo.getManufacturer()));
+            event.put("device_model", replaceWithJSONNull(deviceInfo.getModel()));
+            event.put("carrier", replaceWithJSONNull(deviceInfo.getCarrier()));
+            event.put("country", replaceWithJSONNull(deviceInfo.getCountry()));
+            event.put("language", replaceWithJSONNull(deviceInfo.getLanguage()));
             event.put("platform", Constants.PLATFORM);
 
             JSONObject library = new JSONObject();
@@ -329,9 +368,10 @@ public class AmplitudeClient {
                 locationJSON.put("lng", location.getLongitude());
                 apiProperties.put("location", locationJSON);
             }
-            if (advertisingId != null) {
-                apiProperties.put("androidADID", advertisingId);
+            if (deviceInfo.getAdvertisingId() != null) {
+                apiProperties.put("androidADID", deviceInfo.getAdvertisingId());
             }
+            apiProperties.put("limit_ad_tracking", deviceInfo.isLimitAdTrackingEnabled());
 
             event.put("api_properties", apiProperties);
             event.put("event_properties", (eventProperties == null) ? new JSONObject()
@@ -349,12 +389,14 @@ public class AmplitudeClient {
     protected long saveEvent(JSONObject event) {
         DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
         long eventId = dbHelper.addEvent(event.toString());
+        setLastEventId(eventId);
+        long eventCount = dbHelper.getEventCount();
 
-        if (dbHelper.getEventCount() >= eventMaxCount) {
+        if (eventCount >= eventMaxCount) {
             dbHelper.removeEvents(dbHelper.getNthEventId(Constants.EVENT_REMOVE_BATCH_SIZE));
         }
 
-        if (dbHelper.getEventCount() >= eventUploadThreshold) {
+        if ((eventCount % eventUploadThreshold) == 0 && eventCount >= eventUploadThreshold) {
             updateServer(null);
         } else {
             updateServerLater(eventUploadPeriodMillis);
@@ -363,161 +405,138 @@ public class AmplitudeClient {
         return eventId;
     }
 
-    private long getLastEventTime() {
+    long getLastEventTime() {
         SharedPreferences preferences = context.getSharedPreferences(
-            getSharedPreferencesName(), Context.MODE_PRIVATE);
-        return preferences.getLong(Constants.PREFKEY_PREVIOUS_SESSION_TIME, -1);
+                getSharedPreferencesName(), Context.MODE_PRIVATE);
+        return preferences.getLong(Constants.PREFKEY_LAST_EVENT_TIME, -1);
     }
 
     void setLastEventTime(long timestamp) {
         SharedPreferences preferences = context.getSharedPreferences(
                 getSharedPreferencesName(), Context.MODE_PRIVATE);
-        preferences.edit().putLong(Constants.PREFKEY_PREVIOUS_SESSION_TIME, timestamp).commit();
+        preferences.edit().putLong(Constants.PREFKEY_LAST_EVENT_TIME, timestamp).commit();
     }
 
-    void clearEndSession() {
+    long getLastEventId() {
         SharedPreferences preferences = context.getSharedPreferences(
                 getSharedPreferencesName(), Context.MODE_PRIVATE);
-        preferences.edit().remove(Constants.PREFKEY_PREVIOUS_END_SESSION_TIME)
-                .remove(Constants.PREFKEY_PREVIOUS_END_SESSION_ID).commit();
+        return preferences.getLong(Constants.PREFKEY_LAST_EVENT_ID, -1);
     }
 
-    long getEndSessionTime() {
+    void setLastEventId(long eventId) {
         SharedPreferences preferences = context.getSharedPreferences(
                 getSharedPreferencesName(), Context.MODE_PRIVATE);
-        return preferences.getLong(Constants.PREFKEY_PREVIOUS_END_SESSION_TIME, -1);
+        preferences.edit().putLong(Constants.PREFKEY_LAST_EVENT_ID, eventId).commit();
     }
 
-    long getEndSessionId() {
+    long getPreviousSessionId() {
         SharedPreferences preferences = context.getSharedPreferences(
                 getSharedPreferencesName(), Context.MODE_PRIVATE);
-        return preferences.getLong(Constants.PREFKEY_PREVIOUS_END_SESSION_ID, -1);
+        return preferences.getLong(Constants.PREFKEY_PREVIOUS_SESSION_ID, -1);
     }
 
-    private void openSession() {
-        clearEndSession();
-        sessionOpen = true;
+    void setPreviousSessionId(long timestamp) {
+        SharedPreferences preferences = context.getSharedPreferences(
+                getSharedPreferencesName(), Context.MODE_PRIVATE);
+        preferences.edit().putLong(Constants.PREFKEY_PREVIOUS_SESSION_ID, timestamp).commit();
     }
 
-    private void closeSession() {
-        // Close the session. Events within the next MIN_TIME_BETWEEN_SESSIONS_MILLIS seconds
-        // will stay in the session.
-        // A startSession call within the next MIN_TIME_BETWEEN_SESSIONS_MILLIS seconds
-        // will reopen the session.
-        sessionOpen = false;
+    boolean startNewSessionIfNeeded(long timestamp) {
+        if (inSession()) {
+
+            if (isWithinMinTimeBetweenSessions(timestamp)) {
+                refreshSessionTime(timestamp);
+                return false;
+            }
+
+            startNewSession(timestamp);
+            return true;
+        }
+
+        // no current session - check for previous session
+        if (isWithinMinTimeBetweenSessions(timestamp)) {
+            long previousSessionId = getPreviousSessionId();
+            if (previousSessionId == -1) {
+                startNewSession(timestamp);
+                return true;
+            }
+
+            // extend previous session
+            setSessionId(previousSessionId);
+            refreshSessionTime(timestamp);
+            return false;
+        }
+
+        startNewSession(timestamp);
+        return true;
     }
 
     private void startNewSession(long timestamp) {
-        // Log session start in events
-        openSession();
+        // end previous session
+        if (trackingSessionEvents) {
+            sendSessionEvent(END_SESSION_EVENT);
+        }
+
+        // start new session
+        setSessionId(timestamp);
+        refreshSessionTime(timestamp);
+        if (trackingSessionEvents) {
+            sendSessionEvent(START_SESSION_EVENT);
+        }
+    }
+
+    private boolean inSession() {
+        return sessionId >= 0;
+    }
+
+    private boolean isWithinMinTimeBetweenSessions(long timestamp) {
+        long lastEventTime = getLastEventTime();
+        long sessionLimit = usingForegroundTracking ?
+                minTimeBetweenSessionsMillis : sessionTimeoutMillis;
+        return (timestamp - lastEventTime) < sessionLimit;
+    }
+
+    private void setSessionId(long timestamp) {
         sessionId = timestamp;
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        preferences.edit().putLong(Constants.PREFKEY_PREVIOUS_SESSION_ID, sessionId).commit();
+        setPreviousSessionId(timestamp);
+    }
+
+    void refreshSessionTime(long timestamp) {
+        if (!inSession()) {
+            return;
+        }
+
+        setLastEventTime(timestamp);
+    }
+
+    private void sendSessionEvent(final String sessionEvent) {
+        if (!contextAndApiKeySet(String.format("sendSessionEvent('%s')", sessionEvent))) {
+            return;
+        }
+
+        if (!inSession()) {
+            return;
+        }
+
         JSONObject apiProperties = new JSONObject();
         try {
-            apiProperties.put("special", START_SESSION_EVENT);
+            apiProperties.put("special", sessionEvent);
         } catch (JSONException e) {
-        }
-        logEvent(START_SESSION_EVENT, null, apiProperties, timestamp, false);
-    }
-
-    private void startNewSessionIfNeeded(long timestamp) {
-        if (!sessionOpen) {
-            long lastEndSessionTime = getEndSessionTime();
-            if (timestamp - lastEndSessionTime < minTimeBetweenSessionsMillis) {
-                // Sessions close enough, set sessionId to previous sessionId
-
-                SharedPreferences preferences = context.getSharedPreferences(
-                        getSharedPreferencesName(), Context.MODE_PRIVATE);
-                long previousSessionId = preferences.getLong(
-                        Constants.PREFKEY_PREVIOUS_SESSION_ID, -1);
-
-                if (previousSessionId == -1) {
-                    // Invalid session Id, create new sessionId
-                    startNewSession(timestamp);
-                } else {
-                    sessionId = previousSessionId;
-                }
-            } else {
-                // Sessions not close enough, create new sessionId
-                startNewSession(timestamp);
-            }
-        } else {
-            long lastEventTime = getLastEventTime();
-            if (timestamp - lastEventTime > sessionTimeoutMillis || sessionId == -1) {
-                startNewSession(timestamp);
-            }
-        }
-    }
-
-    public void startSession() {
-        if (!contextAndApiKeySet("startSession()")) {
             return;
         }
-        final long now = System.currentTimeMillis();
 
-        runOnLogThread(new Runnable() {
-            @Override
-            public void run() {
-                logThread.removeCallbacks(endSessionRunnable);
-                long previousEndSessionId = getEndSessionId();
-                long lastEndSessionTime = getEndSessionTime();
-                if (previousEndSessionId != -1
-                    && now - lastEndSessionTime < minTimeBetweenSessionsMillis) {
-                    DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
-                    dbHelper.removeEvent(previousEndSessionId);
-                }
-                startNewSessionIfNeeded(now);
-                openSession();
-
-                // Update last event time
-                setLastEventTime(now);
-
-                uploadEvents();
-            }
-        });
+        long timestamp = getLastEventTime();
+        logEvent(sessionEvent, null, apiProperties, timestamp, false);
     }
 
-    public void endSession() {
-        if (!contextAndApiKeySet("endSession()")) {
-            return;
-        }
-        final long timestamp = System.currentTimeMillis();
-        runOnLogThread(new Runnable() {
-            @Override
-            public void run() {
-                JSONObject apiProperties = new JSONObject();
-                try {
-                    apiProperties.put("special", END_SESSION_EVENT);
-                } catch (JSONException e) {
-                }
-                if (sessionOpen) {
-                    long eventId = logEvent(END_SESSION_EVENT, null, apiProperties, timestamp,
-                            false);
+    void onExitForeground(long timestamp) {
+        refreshSessionTime(timestamp);
+        inForeground = false;
+    }
 
-                    SharedPreferences preferences = context.getSharedPreferences(
-                            getSharedPreferencesName(), Context.MODE_PRIVATE);
-                    preferences.edit()
-                            .putLong(Constants.PREFKEY_PREVIOUS_END_SESSION_ID, eventId)
-                            .putLong(Constants.PREFKEY_PREVIOUS_END_SESSION_TIME, timestamp)
-                            .commit();
-                }
-                closeSession();
-            }
-        });
-
-        // Queue up upload events MIN_TIME_BETWEEN_SESSIONS + 1 seconds later
-        logThread.removeCallbacks(endSessionRunnable);
-        endSessionRunnable = new Runnable() {
-            @Override
-            public void run() {
-                clearEndSession();
-                uploadEvents();
-            }
-        };
-        logThread.postDelayed(endSessionRunnable,
-            minTimeBetweenSessionsMillis + 1000);
+    void onEnterForeground(long timestamp) {
+        startNewSessionIfNeeded(timestamp);
+        inForeground = true;
     }
 
     public void logRevenue(double amount) {
@@ -550,7 +569,7 @@ public class AmplitudeClient {
                 new AmplitudeException(e));
         }
 
-        logEvent(REVENUE_EVENT, null, apiProperties, System.currentTimeMillis(), true);
+        logEvent(REVENUE_EVENT, null, apiProperties, System.currentTimeMillis(), false);
     }
 
     public void setUserProperties(JSONObject userProperties) {
@@ -558,27 +577,37 @@ public class AmplitudeClient {
     }
 
     public void setUserProperties(final JSONObject userProperties, final boolean replace) {
-        if (replace || this.userProperties == null) {
-            this.userProperties = userProperties;
-            return;
-        }
-
-        if (userProperties == null) {
-            return;
-        }
-
-        // If merging is needed, do it on the log thread. Avoids an issue
-        // where user properties is being mutated here at the same time
-        // it's being iterated on for stringify in the event sending logic.
-        final JSONObject currentUserProperties = this.userProperties;
         runOnLogThread(new Runnable() {
             @Override
             public void run() {
-                Iterator<?> keys = userProperties.keys();
+                AmplitudeClient instance = AmplitudeClient.this;
+                if (userProperties == null) {
+                    if (replace) {
+                        instance.userProperties = null;
+                    }
+                    return;
+                }
+
+                // Create deep copy to try and prevent ConcurrentModificationException
+                JSONObject copy;
+                try {
+                    copy = new JSONObject(userProperties.toString());
+                } catch (JSONException e) {
+                    Log.e(TAG, e.toString());
+                    return; // could not create copy, cannot merge
+                } // catch (ConcurrentModificationException e) {}
+
+                JSONObject currentUserProperties = instance.userProperties;
+                if (replace || currentUserProperties == null) {
+                    instance.userProperties = copy;
+                    return;
+                }
+
+                Iterator<?> keys = copy.keys();
                 while (keys.hasNext()) {
                     String key = (String) keys.next();
                     try {
-                        currentUserProperties.put(key, userProperties.get(key));
+                        currentUserProperties.put(key, copy.get(key));
                     } catch (JSONException e) {
                         listener.onError(
                             new AmplitudeException(e));
@@ -586,6 +615,15 @@ public class AmplitudeClient {
                 }
             }
         });
+    }
+
+
+    /**
+     * @return The developer specified identifier for tracking within the analytics system.
+     *         Can be null.
+     */
+    public String getUserId() {
+        return userId;
     }
 
     public void setUserId(String userId) {
@@ -645,9 +683,9 @@ public class AmplitudeClient {
         if (!uploadingCurrently.getAndSet(true)) {
             DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
             try {
-                long endSessionId = getEndSessionId();
-                Pair<Long, JSONArray> pair = dbHelper.getEvents(endSessionId,
-                        limit ? eventUploadMaxBatchSize : -1);
+                long lastEventId = getLastEventId();
+                int batchLimit = limit ? (backoffUpload ? backoffUploadBatchSize : eventUploadMaxBatchSize) : -1;
+                Pair<Long, JSONArray> pair = dbHelper.getEvents(lastEventId, batchLimit);
                 final long maxId = pair.first;
                 final JSONArray events = pair.second;
                 httpThread.post(new Runnable() {
@@ -674,13 +712,13 @@ public class AmplitudeClient {
         String checksumString = "";
         try {
             String preimage = apiVersionString + apiKey + events + timestampString;
-            checksumString = bytesToHexString(MessageDigest.getInstance("MD5").digest(
-                    preimage.getBytes("UTF-8")));
-        } catch (NoSuchAlgorithmException e) {
-            // According to
-            // http://stackoverflow.com/questions/5049524/is-java-utf-8-charset-exception-possible,
-            // this will never be thrown
-            listener.onError(new AmplitudeException(e));
+
+            // MessageDigest.getInstance(String) is not threadsafe on Android.
+            // See https://code.google.com/p/android/issues/detail?id=37937
+            // Use MD5 implementation from http://org.rodage.com/pub/java/security/MD5.java
+            // This implementation does not throw NoSuchAlgorithm exceptions.
+            MessageDigest messageDigest = new MD5();
+            checksumString = bytesToHexString(messageDigest.digest(preimage.getBytes("UTF-8")));
         } catch (UnsupportedEncodingException e) {
             // According to
             // http://stackoverflow.com/questions/5049524/is-java-utf-8-charset-exception-possible,
@@ -718,10 +756,12 @@ public class AmplitudeClient {
                             logThread.post(new Runnable() {
                                 @Override
                                 public void run() {
-                                    updateServer(false, callback);
+                                    updateServer(backoffUpload, callback);
                                 }
                             });
                         } else {
+                            backoffUpload = false;
+                            backoffUploadBatchSize = eventUploadMaxBatchSize;
                             callback.onComplete();
                         }
                     }
@@ -738,6 +778,27 @@ public class AmplitudeClient {
                 throw
                     new AmplitudeException(
                         "Couldn't write to request database on server, will attempt to reupload later");
+            } else if (response.code() == 413) {
+
+                // If blocked by one massive event, drop it
+                DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
+                if (backoffUpload && backoffUploadBatchSize == 1) {
+                    dbHelper.removeEvent(maxId);
+                    // maybe we want to reset backoffUploadBatchSize after dropping massive event
+                }
+
+                // Server complained about length of request, backoff and try again
+                backoffUpload = true;
+                int numEvents = Math.min((int)dbHelper.getEventCount(), backoffUploadBatchSize);
+                backoffUploadBatchSize = (int)Math.ceil(numEvents / 2.0);
+                Log.w(TAG, "Request too large, will decrease size and attempt to reupload");
+                logThread.post(new Runnable() {
+                   @Override
+                    public void run() {
+                       uploadingCurrently.set(false);
+                       updateServer(true, callback);
+                   }
+                });
             } else {
                 throw 
                     new AmplitudeException("Upload failed, " + stringResponse
@@ -777,9 +838,9 @@ public class AmplitudeClient {
         invalidIds.add("Android");
         invalidIds.add("DEFACE");
 
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        String deviceId = preferences.getString(Constants.PREFKEY_DEVICE_ID, null);
+        // see if device id already stored in db
+        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
+        String deviceId = dbHelper.getValue(DEVICE_ID_KEY);
         if (!(TextUtils.isEmpty(deviceId) || invalidIds.contains(deviceId))) {
             return deviceId;
         }
@@ -790,8 +851,7 @@ public class AmplitudeClient {
 
             String advertisingId = deviceInfo.getAdvertisingId();
             if (!(TextUtils.isEmpty(advertisingId) || invalidIds.contains(advertisingId))) {
-                preferences.edit().putString(Constants.PREFKEY_DEVICE_ID, advertisingId)
-                        .commit();
+                dbHelper.insertOrReplaceKeyValue(DEVICE_ID_KEY, advertisingId);
                 return advertisingId;
             }
         }
@@ -799,9 +859,8 @@ public class AmplitudeClient {
         // If this still fails, generate random identifier that does not persist
         // across installations. Append R to distinguish as randomly generated
         String randomId = deviceInfo.generateUUID() + "R";
-        preferences.edit().putString(Constants.PREFKEY_DEVICE_ID, randomId).commit();
+        dbHelper.insertOrReplaceKeyValue(DEVICE_ID_KEY, randomId);
         return randomId;
-
     }
 
     private void runOnLogThread(Runnable r) {
@@ -929,18 +988,6 @@ public class AmplitudeClient {
             SharedPreferences.Editor target = targetPrefs.edit();
 
             // Copy over all existing data.
-            if (source.contains(sourcePkgName + ".previousSessionTime")) {
-                target.putLong(Constants.PREFKEY_PREVIOUS_SESSION_TIME,
-                        source.getLong(sourcePkgName + ".previousSessionTime", -1));
-            }
-            if (source.contains(sourcePkgName + ".previousEndSessionTime")) {
-                target.putLong(Constants.PREFKEY_PREVIOUS_END_SESSION_TIME,
-                        source.getLong(sourcePkgName + ".previousEndSessionTime", -1));
-            }
-            if (source.contains(sourcePkgName + ".previousEndSessionId")) {
-                target.putLong(Constants.PREFKEY_PREVIOUS_END_SESSION_ID,
-                        source.getLong(sourcePkgName + ".previousEndSessionId", -1));
-            }
             if (source.contains(sourcePkgName + ".previousSessionId")) {
                 target.putLong(Constants.PREFKEY_PREVIOUS_SESSION_ID,
                         source.getLong(sourcePkgName + ".previousSessionId", -1));
@@ -970,4 +1017,38 @@ public class AmplitudeClient {
                 new AmplitudeException("Error upgrading shared preferences", e));
             return false;
         }
-    }}
+    }
+
+    /*
+     * Move device ID from sharedPrefs to new sqlite key value store.
+     *
+     * This should only happen once -- the first time a user loads the app after updating.
+     * This should happen only after moving the preference data from legacy to new static name.
+     * This logic needs to remain in place for quite a long time. It was first introduced in
+     * August 2015 in version 1.8.0.
+     */
+    static boolean upgradeDeviceIdToDB(Context context) {
+        return upgradeDeviceIdToDB(context, null);
+    }
+
+    static boolean upgradeDeviceIdToDB(Context context, String sourcePkgName) {
+        if (sourcePkgName == null) {
+            sourcePkgName = Constants.PACKAGE_NAME;
+        }
+
+        String prefsName = sourcePkgName + "." + context.getPackageName();
+        SharedPreferences preferences =
+                context.getSharedPreferences(prefsName, Context.MODE_PRIVATE);
+
+        String deviceId = preferences.getString(Constants.PREFKEY_DEVICE_ID, null);
+        if (!TextUtils.isEmpty(deviceId)) {
+            DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
+            dbHelper.insertOrReplaceKeyValue(DEVICE_ID_KEY, deviceId);
+
+            // remove device id from sharedPrefs so that this upgrade occurs only once
+            preferences.edit().remove(Constants.PREFKEY_DEVICE_ID).apply();
+        }
+
+        return true;
+    }
+}
