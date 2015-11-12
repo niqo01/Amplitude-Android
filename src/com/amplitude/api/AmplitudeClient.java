@@ -1,22 +1,5 @@
 package com.amplitude.api;
 
-import com.amplitude.security.MD5;
-
-import java.io.UnsupportedEncodingException;
-import java.security.MessageDigest;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Set;
-
-import com.squareup.okhttp.FormEncodingBuilder;
-import com.squareup.okhttp.OkHttpClient;
-import com.squareup.okhttp.Request;
-import com.squareup.okhttp.RequestBody;
-import com.squareup.okhttp.Response;
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
 
 import android.app.Application;
 import android.content.Context;
@@ -27,6 +10,27 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
 
+import com.amplitude.security.MD5;
+import com.squareup.okhttp.FormEncodingBuilder;
+import com.squareup.okhttp.OkHttpClient;
+import com.squareup.okhttp.Request;
+import com.squareup.okhttp.RequestBody;
+import com.squareup.okhttp.Response;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.security.MessageDigest;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 public class AmplitudeClient {
 
     public static final String TAG = "com.amplitude.api.AmplitudeClient";
@@ -35,6 +39,7 @@ public class AmplitudeClient {
     public static final String END_SESSION_EVENT = "session_end";
     public static final String REVENUE_EVENT = "revenue_amount";
     public static final String DEVICE_ID_KEY = "device_id";
+    public static final String SEQUENCE_NUMBER_KEY = "sequence_number";
 
     protected static AmplitudeClient instance = new AmplitudeClient();
 
@@ -42,11 +47,6 @@ public class AmplitudeClient {
         return instance;
     }
 
-    private static final Amplitude.Listener ANDROID_LOG = new Amplitude.Listener() {
-        public void onError(AmplitudeException error) {
-            Log.e(TAG, "Amplitude error", error);
-        }
-    };
 
     private static final Amplitude.UploadCallback EMPTY = new Amplitude.UploadCallback() {
         @Override public void onComplete() {
@@ -58,8 +58,9 @@ public class AmplitudeClient {
         }
     };
 
+    private static AmplitudeLog logger = AmplitudeLog.getLogger();
+
     protected Context context;
-    protected Amplitude.Listener listener = ANDROID_LOG;
     protected OkHttpClient httpClient;
     protected String apiKey;
     protected String userId;
@@ -71,9 +72,6 @@ public class AmplitudeClient {
     private boolean offline = false;
 
     private DeviceInfo deviceInfo;
-
-    /* VisibleForTesting */
-    JSONObject userProperties;
 
     private long sessionId = -1;
     private int eventUploadThreshold = Constants.EVENT_UPLOAD_THRESHOLD;
@@ -89,7 +87,7 @@ public class AmplitudeClient {
     private boolean inForeground = false;
 
     private AtomicBoolean updateScheduled = new AtomicBoolean(false);
-    private AtomicBoolean uploadingCurrently = new AtomicBoolean(false);
+    AtomicBoolean uploadingCurrently = new AtomicBoolean(false);
 
     // Let test classes have access to these properties.
     Throwable lastError;
@@ -103,31 +101,24 @@ public class AmplitudeClient {
     }
 
     public AmplitudeClient initialize(Context context, String apiKey) {
-        return initialize(context, apiKey, null, null);
+        return initialize(context, apiKey, null);
     }
 
-    public AmplitudeClient initialize(Context context, String apiKey, Amplitude.Listener listener) {
-        return initialize(context, apiKey, null, null, listener);
+    public AmplitudeClient initialize(Context context, String apiKey, OkHttpClient okHttpClient) {
+        return initialize(context, apiKey, null, okHttpClient);
     }
 
-    public AmplitudeClient initialize(Context context, String apiKey, OkHttpClient okHttpClient, Amplitude.Listener listener) {
-        return initialize(context, apiKey, null, okHttpClient, listener);
-    }
-
-    public synchronized AmplitudeClient initialize(Context context, String apiKey, String userId, OkHttpClient okHttpClient, Amplitude.Listener listener) {
-        if (listener != null){
-            this.listener = listener;
-        }
+    public synchronized AmplitudeClient initialize(Context context, String apiKey, String userId, OkHttpClient okHttpClient) {
         if (context == null) {
-            listener.onError(new AmplitudeException("Argument context cannot be null in initialize()"));
+            logger.e(TAG, "Argument context cannot be null in initialize()");
             return instance;
         }
 
-        AmplitudeClient.upgradePrefs(context, listener);
+        AmplitudeClient.upgradePrefs(context);
         AmplitudeClient.upgradeDeviceIdToDB(context);
 
         if (TextUtils.isEmpty(apiKey)) {
-            Log.e(TAG, "Argument apiKey cannot be null or blank in initialize()");
+            logger.e(TAG, "Argument apiKey cannot be null or blank in initialize()");
             return instance;
 
         }
@@ -145,6 +136,13 @@ public class AmplitudeClient {
                 this.userId = preferences.getString(Constants.PREFKEY_USER_ID, null);
             }
             this.optOut = preferences.getBoolean(Constants.PREFKEY_OPT_OUT, false);
+
+            // try to restore previous session id
+            long previousSessionId = getPreviousSessionId();
+            if (previousSessionId >= 0) {
+                sessionId = previousSessionId;
+            }
+
             initialized = true;
         }
 
@@ -243,6 +241,16 @@ public class AmplitudeClient {
         return instance;
     }
 
+    public AmplitudeClient enableLogging(boolean enableLogging) {
+        logger.setEnableLogging(enableLogging);
+        return instance;
+    }
+
+    public AmplitudeClient setLogLevel(int logLevel) {
+        logger.setLogLevel(logLevel);
+        return instance;
+    }
+
     public AmplitudeClient setOffline(boolean offline) {
         this.offline = offline;
         return instance;
@@ -272,20 +280,23 @@ public class AmplitudeClient {
 
     public void logEvent(String eventType, JSONObject eventProperties, boolean outOfSession) {
         if (validateLogEvent(eventType)) {
-            logEventAsync(eventType, eventProperties, null, System.currentTimeMillis(), outOfSession);
+            logEventAsync(eventType, eventProperties, null, null, getCurrentTimeMillis(), outOfSession);
         }
     }
 
     public void logEventSync(String eventType, JSONObject eventProperties) {
+        logEventSync(eventType, eventProperties, false);
+    }
+
+    public void logEventSync(String eventType, JSONObject eventProperties, boolean outOfSession) {
         if (validateLogEvent(eventType)) {
-            logEvent(eventType, eventProperties, null, System.currentTimeMillis(), false);
+            logEvent(eventType, eventProperties, null, null, getCurrentTimeMillis(), outOfSession);
         }
     }
 
     protected boolean validateLogEvent(String eventType) {
         if (TextUtils.isEmpty(eventType)) {
-            listener.onError(
-                new AmplitudeException("Argument eventType cannot be null or blank in logEvent()"));
+            logger.e(TAG, "Argument eventType cannot be null or blank in logEvent()");
             return false;
         }
 
@@ -297,7 +308,8 @@ public class AmplitudeClient {
     }
 
     protected void logEventAsync(final String eventType, JSONObject eventProperties,
-            final JSONObject apiProperties, final long timestamp, final boolean outOfSession) {
+            final JSONObject apiProperties, final JSONObject userProperties,
+            final long timestamp, final boolean outOfSession) {
         // Clone the incoming eventProperties object before sending over
         // to the log thread. Helps avoid ConcurrentModificationException
         // if the caller starts mutating the object they passed in.
@@ -311,14 +323,14 @@ public class AmplitudeClient {
         runOnLogThread(new Runnable() {
             @Override
             public void run() {
-                logEvent(eventType, copyEventProperties, apiProperties, timestamp, outOfSession);
+                logEvent(eventType, copyEventProperties, apiProperties, userProperties, timestamp, outOfSession);
             }
         });
     }
 
-    protected long logEvent(String eventType, JSONObject eventProperties,
-            JSONObject apiProperties, long timestamp, boolean outOfSession) {
-        Log.d(TAG, "Logged event to Amplitude: " + eventType);
+    protected long logEvent(String eventType, JSONObject eventProperties, JSONObject apiProperties,
+            JSONObject userProperties, long timestamp, boolean outOfSession) {
+        logger.d(TAG, "Logged event to Amplitude: " + eventType);
 
         if (optOut) {
             return -1;
@@ -354,6 +366,8 @@ public class AmplitudeClient {
             event.put("country", replaceWithJSONNull(deviceInfo.getCountry()));
             event.put("language", replaceWithJSONNull(deviceInfo.getLanguage()));
             event.put("platform", Constants.PLATFORM);
+            event.put("uuid", UUID.randomUUID().toString());
+            event.put("sequence_number", getNextSequenceNumber());
 
             JSONObject library = new JSONObject();
             library.put("name", Constants.LIBRARY);
@@ -375,34 +389,61 @@ public class AmplitudeClient {
 
             event.put("api_properties", apiProperties);
             event.put("event_properties", (eventProperties == null) ? new JSONObject()
-                    : eventProperties);
+                    : truncate(eventProperties));
             event.put("user_properties", (userProperties == null) ? new JSONObject()
-                    : userProperties);
+                    : truncate(userProperties));
         } catch (JSONException e) {
-            listener.onError(
-                new AmplitudeException(e));
+            logger.e(TAG, e.toString());
         }
 
-        return saveEvent(event);
+        return saveEvent(eventType, event);
     }
 
-    protected long saveEvent(JSONObject event) {
+    protected long saveEvent(String eventType, JSONObject event) {
         DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
-        long eventId = dbHelper.addEvent(event.toString());
-        setLastEventId(eventId);
-        long eventCount = dbHelper.getEventCount();
-
-        if (eventCount >= eventMaxCount) {
-            dbHelper.removeEvents(dbHelper.getNthEventId(Constants.EVENT_REMOVE_BATCH_SIZE));
+        long eventId;
+        if (eventType.equals(Constants.IDENTIFY_EVENT)) {
+            eventId = dbHelper.addIdentify(event.toString());
+            setLastIdentifyId(eventId);
+        } else {
+            eventId = dbHelper.addEvent(event.toString());
+            setLastEventId(eventId);
         }
 
-        if ((eventCount % eventUploadThreshold) == 0 && eventCount >= eventUploadThreshold) {
+        int numEventsToRemove = Math.min(
+                Math.max(1, eventMaxCount/10),
+                Constants.EVENT_REMOVE_BATCH_SIZE
+        );
+        if (dbHelper.getEventCount() > eventMaxCount) {
+            dbHelper.removeEvents(dbHelper.getNthEventId(numEventsToRemove));
+        }
+        if (dbHelper.getIdentifyCount() > eventMaxCount) {
+            dbHelper.removeIdentifys(dbHelper.getNthIdentifyId(numEventsToRemove));
+        }
+
+        long totalEventCount = dbHelper.getTotalEventCount(); // counts may have changed, refetch
+        if ((totalEventCount % eventUploadThreshold) == 0 &&
+                totalEventCount >= eventUploadThreshold) {
             updateServer(null);
         } else {
             updateServerLater(eventUploadPeriodMillis);
         }
 
         return eventId;
+    }
+
+    // shared sequence number for ordering events and identifys
+    long getNextSequenceNumber() {
+        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
+
+        Long sequenceNumber = dbHelper.getLongValue(SEQUENCE_NUMBER_KEY);
+        if (sequenceNumber == null) {
+            sequenceNumber = 0L;
+        }
+
+        sequenceNumber++;
+        dbHelper.insertOrReplaceKeyLongValue(SEQUENCE_NUMBER_KEY, sequenceNumber);
+        return sequenceNumber;
     }
 
     long getLastEventTime() {
@@ -427,6 +468,18 @@ public class AmplitudeClient {
         SharedPreferences preferences = context.getSharedPreferences(
                 getSharedPreferencesName(), Context.MODE_PRIVATE);
         preferences.edit().putLong(Constants.PREFKEY_LAST_EVENT_ID, eventId).commit();
+    }
+
+    long getLastIdentifyId() {
+        SharedPreferences preferences = context.getSharedPreferences(
+                getSharedPreferencesName(), Context.MODE_PRIVATE);
+        return preferences.getLong(Constants.PREFKEY_LAST_IDENTIFY_ID, -1);
+    }
+
+    void setLastIdentifyId(long identifyId) {
+        SharedPreferences preferences = context.getSharedPreferences(
+                getSharedPreferencesName(), Context.MODE_PRIVATE);
+        preferences.edit().putLong(Constants.PREFKEY_LAST_IDENTIFY_ID, identifyId).commit();
     }
 
     long getPreviousSessionId() {
@@ -526,17 +579,27 @@ public class AmplitudeClient {
         }
 
         long timestamp = getLastEventTime();
-        logEvent(sessionEvent, null, apiProperties, timestamp, false);
+        logEvent(sessionEvent, null, apiProperties, null, timestamp, false);
     }
 
-    void onExitForeground(long timestamp) {
-        refreshSessionTime(timestamp);
-        inForeground = false;
+    void onExitForeground(final long timestamp) {
+        runOnLogThread(new Runnable() {
+            @Override
+            public void run() {
+                refreshSessionTime(timestamp);
+                inForeground = false;
+            }
+        });
     }
 
-    void onEnterForeground(long timestamp) {
-        startNewSessionIfNeeded(timestamp);
-        inForeground = true;
+    void onEnterForeground(final long timestamp) {
+        runOnLogThread(new Runnable() {
+            @Override
+            public void run() {
+                startNewSessionIfNeeded(timestamp);
+                inForeground = true;
+            }
+        });
     }
 
     public void logRevenue(double amount) {
@@ -565,56 +628,103 @@ public class AmplitudeClient {
             apiProperties.put("receipt", receipt);
             apiProperties.put("receiptSig", receiptSignature);
         } catch (JSONException e) {
-            listener.onError(
-                new AmplitudeException(e));
+            logger.e(TAG, e.toString());
         }
 
-        logEvent(REVENUE_EVENT, null, apiProperties, System.currentTimeMillis(), false);
+        logEventAsync(REVENUE_EVENT, null, apiProperties, null, getCurrentTimeMillis(), false);
     }
 
-    public void setUserProperties(JSONObject userProperties) {
-        setUserProperties(userProperties, false);
+    // maintain for backwards compatibility
+    public void setUserProperties(final JSONObject userProperties, final boolean replace){
+        setUserProperties(userProperties);
     }
 
-    public void setUserProperties(final JSONObject userProperties, final boolean replace) {
+    public void setUserProperties(final JSONObject userProperties) {
+        if (userProperties == null || userProperties.length() == 0) {
+            return;
+        }
+
         runOnLogThread(new Runnable() {
             @Override
             public void run() {
-                AmplitudeClient instance = AmplitudeClient.this;
-                if (userProperties == null) {
-                    if (replace) {
-                        instance.userProperties = null;
-                    }
-                    return;
-                }
-
                 // Create deep copy to try and prevent ConcurrentModificationException
                 JSONObject copy;
                 try {
                     copy = new JSONObject(userProperties.toString());
                 } catch (JSONException e) {
-                    Log.e(TAG, e.toString());
-                    return; // could not create copy, cannot merge
-                } // catch (ConcurrentModificationException e) {}
-
-                JSONObject currentUserProperties = instance.userProperties;
-                if (replace || currentUserProperties == null) {
-                    instance.userProperties = copy;
-                    return;
+                    logger.e(TAG, e.toString());
+                    return; // could not create copy
                 }
 
+                Identify identify = new Identify();
                 Iterator<?> keys = copy.keys();
                 while (keys.hasNext()) {
                     String key = (String) keys.next();
                     try {
-                        currentUserProperties.put(key, copy.get(key));
+                        identify.set(key, copy.get(key));
                     } catch (JSONException e) {
-                        listener.onError(
-                            new AmplitudeException(e));
+                        logger.e(TAG, e.toString());
                     }
                 }
+                identify(identify);
             }
         });
+    }
+
+    public void identify(Identify identify) {
+        if (identify == null || identify.userPropertiesOperations.length() == 0) {
+            return;
+        }
+        logEventAsync(Constants.IDENTIFY_EVENT, null, null,
+                identify.userPropertiesOperations, getCurrentTimeMillis(), false);
+    }
+
+    public JSONObject truncate(JSONObject object) {
+        if (object == null) {
+            return null;
+        }
+
+        Iterator<?> keys = object.keys();
+        while (keys.hasNext()) {
+            String key = (String) keys.next();
+            try {
+                Object value = object.get(key);
+                if (value.getClass().equals(String.class)) {
+                    object.put(key, truncate((String) value));
+                } else if (value.getClass().equals(JSONObject.class)) {
+                    object.put(key, truncate((JSONObject) value));
+                } else if (value.getClass().equals(JSONArray.class)) {
+                    object.put(key, truncate((JSONArray) value));
+                }
+            } catch (JSONException e) {
+                logger.e(TAG, e.toString());
+            }
+        }
+
+        return object;
+    }
+
+    public JSONArray truncate(JSONArray array) throws JSONException {
+        if (array == null) {
+            return null;
+        }
+
+        for (int i = 0; i < array.length(); i++) {
+            Object value = array.get(i);
+            if (value.getClass().equals(String.class)) {
+                array.put(i, truncate((String) value));
+            } else if (value.getClass().equals(JSONObject.class)) {
+                array.put(i, truncate((JSONObject) value));
+            } else if (value.getClass().equals(JSONArray.class)) {
+                array.put(i, truncate((JSONArray) value));
+            }
+        }
+        return array;
+    }
+
+    public String truncate(String value) {
+        return value.length() <= Constants.MAX_STRING_LENGTH ? value :
+                value.substring(0, Constants.MAX_STRING_LENGTH);
     }
 
 
@@ -626,15 +736,28 @@ public class AmplitudeClient {
         return userId;
     }
 
-    public void setUserId(String userId) {
+    public AmplitudeClient setUserId(String userId) {
         if (!contextAndApiKeySet("setUserId()")) {
-            return;
+            return instance;
         }
 
         this.userId = userId;
         SharedPreferences preferences = context.getSharedPreferences(
                 getSharedPreferencesName(), Context.MODE_PRIVATE);
         preferences.edit().putString(Constants.PREFKEY_USER_ID, userId).commit();
+        return instance;
+    }
+
+    public AmplitudeClient setDeviceId(final String deviceId) {
+        Set<String> invalidDeviceIds = getInvalidDeviceIds();
+        if (!contextAndApiKeySet("setDeviceId()") || TextUtils.isEmpty(deviceId) ||
+                invalidDeviceIds.contains(deviceId)) {
+            return instance;
+        }
+
+        this.deviceId = deviceId;
+        DatabaseHelper.getDatabaseHelper(context).insertOrReplaceKeyValue(DEVICE_ID_KEY, deviceId);
+        return instance;
     }
 
     public void uploadEvents() {
@@ -683,31 +806,78 @@ public class AmplitudeClient {
         if (!uploadingCurrently.getAndSet(true)) {
             DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
             try {
-                long lastEventId = getLastEventId();
                 int batchLimit = limit ? (backoffUpload ? backoffUploadBatchSize : eventUploadMaxBatchSize) : -1;
-                Pair<Long, JSONArray> pair = dbHelper.getEvents(lastEventId, batchLimit);
-                final long maxId = pair.first;
-                final JSONArray events = pair.second;
+
+                List<JSONObject> events = dbHelper.getEvents(getLastEventId(), batchLimit);
+                List<JSONObject> identifys = dbHelper.getIdentifys(getLastIdentifyId(), batchLimit);
+                int numEvents = Math.min(batchLimit, events.size() + identifys.size());
+
+                final Pair<Pair<Long, Long>, JSONArray> merged = mergeEventsAndIdentifys(
+                        events, identifys, numEvents);
+                final long maxEventId = merged.first.first;
+                final long maxIdentifyId = merged.first.second;
+                final String mergedEvents = merged.second.toString();
+
                 httpThread.post(new Runnable() {
                     @Override
                     public void run() {
-                        makeEventUploadPostRequest(httpClient, events.toString(), maxId, callback);
+                        makeEventUploadPostRequest(httpClient, mergedEvents, maxEventId, maxIdentifyId, callback);
                     }
                 });
             } catch (JSONException e) {
                 uploadingCurrently.set(false);
                 AmplitudeException aE = new AmplitudeException(e);
-                listener.onError(aE);
                 callback.onError(aE);
+                logger.e(TAG, e.toString());
+
             }
         } else {
             callback.onComplete();
         }
     }
 
-    protected void makeEventUploadPostRequest(OkHttpClient client, String events, final long maxId, final Amplitude.UploadCallback callback) {
+    protected Pair<Pair<Long,Long>, JSONArray> mergeEventsAndIdentifys(List<JSONObject> events,
+                            List<JSONObject> identifys, int numEvents) throws JSONException {
+        JSONArray merged = new JSONArray();
+        long maxEventId = -1;
+        long maxIdentifyId = -1;
+
+        while (merged.length() < numEvents) {
+            // case 1: no identifys, grab from events
+            if (identifys.size() == 0) {
+                JSONObject event = events.remove(0);
+                maxEventId = event.getLong("event_id");
+                merged.put(event);
+
+            // case 2: no events, grab from identifys
+            } else if (events.size() == 0) {
+                JSONObject identify = identifys.remove(0);
+                maxIdentifyId = identify.getLong("event_id");
+                merged.put(identify);
+
+            // case 3: need to compare sequence numbers
+            } else {
+                // events logged before v2.1.0 won't have a sequence number, put those first
+                if (!events.get(0).has("sequence_number") ||
+                        events.get(0).getLong("sequence_number") <
+                        identifys.get(0).getLong("sequence_number")) {
+                    JSONObject event = events.remove(0);
+                    maxEventId = event.getLong("event_id");
+                    merged.put(event);
+                } else {
+                    JSONObject identify = identifys.remove(0);
+                    maxIdentifyId = identify.getLong("event_id");
+                    merged.put(identify);
+                }
+            }
+        }
+
+        return new Pair<Pair<Long, Long>, JSONArray>(new Pair<Long,Long>(maxEventId, maxIdentifyId), merged);
+    }
+
+    protected void makeEventUploadPostRequest(OkHttpClient client, String events, final long maxEventId, final long maxIdentifyId, final Amplitude.UploadCallback callback) {
         String apiVersionString = "" + Constants.API_VERSION;
-        String timestampString = "" + System.currentTimeMillis();
+        String timestampString = "" + getCurrentTimeMillis();
 
         String checksumString = "";
         try {
@@ -723,7 +893,8 @@ public class AmplitudeClient {
             // According to
             // http://stackoverflow.com/questions/5049524/is-java-utf-8-charset-exception-possible,
             // this will never be thrown
-            listener.onError(new AmplitudeException(e));
+            logger.e(TAG, e.toString());
+
         }
 
         RequestBody body = new FormEncodingBuilder()
@@ -750,7 +921,8 @@ public class AmplitudeClient {
                     @Override
                     public void run() {
                         DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
-                        dbHelper.removeEvents(maxId);
+                        if (maxEventId >= 0) dbHelper.removeEvents(maxEventId);
+                        if (maxIdentifyId >= 0) dbHelper.removeIdentifys(maxIdentifyId);
                         uploadingCurrently.set(false);
                         if (dbHelper.getEventCount() > eventUploadThreshold) {
                             logThread.post(new Runnable() {
@@ -767,23 +939,20 @@ public class AmplitudeClient {
                     }
                 });
             } else if (stringResponse.equals("invalid_api_key")) {
-                throw
-                    new AmplitudeException(
-                        "Invalid API key, make sure your API key is correct in initialize()");
+      logger.e(TAG, "Invalid API key, make sure your API key is correct in initialize()");
             } else if (stringResponse.equals("bad_checksum")) {
-                throw
-                    new AmplitudeException(
+                logger.w(TAG,
                         "Bad checksum, post request was mangled in transit, will attempt to reupload later");
             } else if (stringResponse.equals("request_db_write_failed")) {
-                throw
-                    new AmplitudeException(
+                logger.w(TAG,
                         "Couldn't write to request database on server, will attempt to reupload later");
             } else if (response.code() == 413) {
 
                 // If blocked by one massive event, drop it
                 DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
                 if (backoffUpload && backoffUploadBatchSize == 1) {
-                    dbHelper.removeEvent(maxId);
+                    if (maxEventId >= 0) dbHelper.removeEvent(maxEventId);
+                    if (maxIdentifyId >= 0) dbHelper.removeIdentify(maxIdentifyId);
                     // maybe we want to reset backoffUploadBatchSize after dropping massive event
                 }
 
@@ -791,7 +960,7 @@ public class AmplitudeClient {
                 backoffUpload = true;
                 int numEvents = Math.min((int)dbHelper.getEventCount(), backoffUploadBatchSize);
                 backoffUploadBatchSize = (int)Math.ceil(numEvents / 2.0);
-                Log.w(TAG, "Request too large, will decrease size and attempt to reupload");
+                logger.w(TAG, "Request too large, will decrease size and attempt to reupload");
                 logThread.post(new Runnable() {
                    @Override
                     public void run() {
@@ -800,23 +969,33 @@ public class AmplitudeClient {
                    }
                 });
             } else {
-                throw 
-                    new AmplitudeException("Upload failed, " + stringResponse
+                logger.w(TAG, "Upload failed, " + stringResponse
                         + ", will attempt to reupload later");
             }
-        } catch (AmplitudeException e){
-            listener.onError(e);
-            callback.onError(e);
+        } catch (java.net.ConnectException e) {
+            // logger.w(TAG,
+            // "No internet connection found, unable to upload events");
             lastError = e;
-        } catch (Throwable e) {
-            AmplitudeException aE = new AmplitudeException(e);
-            listener.onError(aE);
-            callback.onError(aE);
+        } catch (java.net.UnknownHostException e) {
+            // logger.w(TAG,
+            // "No internet connection found, unable to upload events");
             lastError = e;
-        } finally {
-            if (!uploadSuccess) {
-                uploadingCurrently.set(false);
-            }
+        } catch (IOException e) {
+            logger.e(TAG, e.toString());
+            lastError = e;
+        } catch (AssertionError e) {
+            // This can be caused by a NoSuchAlgorithmException thrown by DefaultHttpClient
+            logger.e(TAG, "Exception:", e);
+            lastError = e;
+        } catch (Exception e) {
+            // Just log any other exception so things don't crash on upload
+            logger.e(TAG, "Exception:", e);
+            lastError = e;
+        }
+
+        if (!uploadSuccess) {
+            callback.onError(new AmplitudeException(lastError));
+            uploadingCurrently.set(false);
         }
 
     }
@@ -829,14 +1008,21 @@ public class AmplitudeClient {
         return deviceId;
     }
 
+    // don't need to keep this in memory, if only using it at most 1 or 2 times
+    private Set<String> getInvalidDeviceIds() {
+        Set<String> invalidDeviceIds = new HashSet<String>();
+        invalidDeviceIds.add("");
+        invalidDeviceIds.add("9774d56d682e549c");
+        invalidDeviceIds.add("unknown");
+        invalidDeviceIds.add("000000000000000"); // Common Serial Number
+        invalidDeviceIds.add("Android");
+        invalidDeviceIds.add("DEFACE");
+
+        return invalidDeviceIds;
+    }
+
     private String initializeDeviceId() {
-        Set<String> invalidIds = new HashSet<String>();
-        invalidIds.add("");
-        invalidIds.add("9774d56d682e549c");
-        invalidIds.add("unknown");
-        invalidIds.add("000000000000000"); // Common Serial Number
-        invalidIds.add("Android");
-        invalidIds.add("DEFACE");
+        Set<String> invalidIds = getInvalidDeviceIds();
 
         // see if device id already stored in db
         DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
@@ -877,15 +1063,14 @@ public class AmplitudeClient {
 
     protected synchronized boolean contextAndApiKeySet(String methodName) {
         if (context == null) {
-            listener.onError(
-                new AmplitudeException("context cannot be null, set context with initialize() before calling "
-                    + methodName));
+            logger.e(TAG, "context cannot be null, set context with initialize() before calling "
+                    + methodName);
             return false;
         }
         if (TextUtils.isEmpty(apiKey)) {
-            listener.onError(
-                new AmplitudeException("apiKey cannot be null or empty, set apiKey with initialize() before calling "
-                            + methodName));
+            logger.e(TAG,
+                    "apiKey cannot be null or empty, set apiKey with initialize() before calling "
+                            + methodName);
             return false;
         }
         return true;
@@ -918,7 +1103,12 @@ public class AmplitudeClient {
         }
 
         // obj.names returns null if the json obj is empty.
-        JSONArray nameArray = obj.names();
+        JSONArray nameArray = null;
+        try {
+            nameArray = obj.names();
+        } catch (ArrayIndexOutOfBoundsException e) {
+            logger.e(TAG, e.toString());
+        }
         int len = (nameArray != null ? nameArray.length() : 0);
 
         String[] names = new String[len];
@@ -929,8 +1119,7 @@ public class AmplitudeClient {
         try {
             return new JSONObject(obj, names);
         } catch (JSONException e) {
-            listener.onError(
-                new AmplitudeException(e));
+            logger.e(TAG, e.toString());
             return null;
         }
     }
@@ -949,11 +1138,11 @@ public class AmplitudeClient {
      * This logic needs to remain in place for quite a long time. It was first introduced in
      * April 2015 in version 1.6.0.
      */
-    static boolean upgradePrefs(Context context, Amplitude.Listener listener) {
-        return upgradePrefs(context, null, null, listener);
+    static boolean upgradePrefs(Context context) {
+        return upgradePrefs(context, null, null);
     }
 
-    static boolean upgradePrefs(Context context, String sourcePkgName, String targetPkgName, Amplitude.Listener listener) {
+    static boolean upgradePrefs(Context context, String sourcePkgName, String targetPkgName) {
         try {
             if (sourcePkgName == null) {
                 // Try to load the package name using the old reflection strategy.
@@ -1009,12 +1198,11 @@ public class AmplitudeClient {
             target.apply();
             source.edit().clear().apply();
 
-            Log.i(TAG, "Upgraded shared preferences from " + sourcePrefsName + " to " + prefsName);
+            logger.i(TAG, "Upgraded shared preferences from " + sourcePrefsName + " to " + prefsName);
             return true;
 
         } catch (Exception e) {
-            listener.onError(
-                new AmplitudeException("Error upgrading shared preferences", e));
+            logger.e(TAG, "Error upgrading shared preferences", e);
             return false;
         }
     }
@@ -1051,4 +1239,6 @@ public class AmplitudeClient {
 
         return true;
     }
+
+    protected long getCurrentTimeMillis() { return System.currentTimeMillis(); }
 }

@@ -6,10 +6,6 @@ import android.content.Context;
 
 public class Amplitude {
 
-    public interface Listener {
-        void onError(AmplitudeException error);
-    }
-
     public interface UploadCallback {
         void onComplete();
         void onError(AmplitudeException error);
@@ -26,7 +22,7 @@ public class Amplitude {
 
     @Deprecated
     public static void initialize(Context context, String apiKey, String userId) {
-        getInstance().initialize(context, apiKey, userId, null, null);
+        getInstance().initialize(context, apiKey, userId, null);
     }
 
     @Deprecated

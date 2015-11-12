@@ -10,22 +10,22 @@ A [demo application](https://github.com/amplitude/Android-Demo) is available to 
 # Setup #
 1. If you haven't already, go to https://amplitude.com/signup and register for an account. Then, add an app. You will receive an API Key.
 
-2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.0.2-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
+2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.2.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
 
-  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.0.2%7Cjar) using the following configuration in your pom.xml:
+  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.2.0%7Cjar) using the following configuration in your pom.xml:
 
     ```
     <dependency>
       <groupId>com.amplitude</groupId>
       <artifactId>android-sdk</artifactId>
-      <version>2.0.2</version>
+      <version>2.2.0</version>
     </dependency>
     ```
 
   Or if you are using gradle in your project, include in your build.gradle file:
 
     ```
-    compile 'com.amplitude:android-sdk:2.0.2'
+    compile 'com.amplitude:android-sdk:2.2.0'
     ```
 
 4.  In every file that uses analytics, import com.amplitude.api.Amplitude at the top:
@@ -132,6 +132,48 @@ try {
 Amplitude.getInstance().setUserProperties(userProperties);
 ```
 
+# User Property Operations #
+
+The SDK supports the operations set, setOnce, unset, and add on individual user properties. The operations are declared via a provided `Identify` interface. Multiple operations can be chained together in a single `Identify` object. The `Identify` object is then passed to the Amplitude client to send to the server. The results of the operations will be visible immediately in the dashboard, and take effect for events logged after.
+
+1. `set`: this sets the value of a user property.
+
+    ```java
+    Identify identify = new Identify().set('gender', 'female').set('age', 20);
+    Amplitude.getInstance().identify(identify);
+    ```
+
+2. `setOnce`: this sets the value of a user property only once. Subsequent `setOnce` operations on that user property will be ignored. In the following example, `sign_up_date` will be set once to `08/24/2015`, and the following setOnce to `09/14/2015` will be ignored:
+
+    ```java
+    Identify identify1 = new Identify().setOnce('sign_up_date', '08/24/2015');
+    Amplitude.getInstance().identify(identify1);
+
+    Identify identify2 = new Identify().setOnce('sign_up_date', '09/14/2015');
+    amplitude.identify(identify2);
+    ```
+
+3. `unset`: this will unset and remove a user property.
+
+    ```java
+    Identify identify = new Identify().unset('gender').unset('age');
+    Amplitude.getInstance().identify(identify);
+    ```
+
+4. `add`: this will increment a user property by some numerical value. If the user property does not have a value set yet, it will be initialized to 0 before being incremented.
+
+    ```java
+    Identify identify = new Identify().add('karma', 1).add('friends', 1);
+    Amplitude.getInstance().identify(identify);
+    ```
+
+Note: if a user property is used in multiple operations on the same `Identify` object, only the first operation will be saved, and the rest will be ignored. In this example, only the set operation will be saved, and the add and unset will be ignored:
+
+```java
+Identify identify = new Identify().set('karma', 10).add('karma', 1).unset('karma');
+Amplitude.getInstance().identify(identify);
+```
+
 # Tracking Revenue #
 
 To track revenue from a user, call `logRevenue()` each time a user generates revenue. For example:
@@ -204,6 +246,10 @@ This SDK automatically grabs useful data from the phone, including app version, 
 
 User IDs are automatically generated based on device specific identifiers if not specified.
 
-By default, device IDs are a randomly generated UUID. If you would like to use Google's Advertising ID as the device ID, you can specify this by calling `Amplitude.useAdvertisingIdForDeviceId()` prior to initializing. You can retrieve the Device ID that Amplitude uses with `Amplitude.getDeviceId()`. This method can return null if a Device ID hasn't been generated yet.
+By default, device IDs are a randomly generated UUID. If you would like to use Google's Advertising ID as the device ID, you can specify this by calling `Amplitude.getInstance().useAdvertisingIdForDeviceId()` prior to initializing. You can retrieve the Device ID that Amplitude uses with `Amplitude.getDeviceId()`. This method can return null if a Device ID hasn't been generated yet.
+
+If you have your own system for tracking device IDs and would like to set a custom device ID, you can do so with `Amplitude.getInstance().setDeviceId("CUSTOM_DEVICE_ID")`. **Note: this is not recommended unless you really know what you are doing.** Make sure the device ID you set is sufficiently unique (we recommend something like a UUID - we use `UUID.randomUUID().toString()`) to prevent conflicts with other devices in our system.
 
 The SDK includes support for SSL pinning, but it is undocumented and recommended against unless you have a specific need. Please contact Amplitude support before you ship any products with SSL pinning enabled so that we are aware and can provide documentation and implementation help.
+
+You can disable all logging done in the SDK by calling `Amplitude.getInstance().enableLogging(false)`. By default the logging level is Log.INFO, meaning info messages, errors, and asserts are logged, but verbose and debug messages are not. You can change the logging level, for example to enable debug messages you can do `Amplitude.getInstance().setLogLevel(Log.DEBUG)`.

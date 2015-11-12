@@ -1,11 +1,7 @@
 package com.amplitude.api;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
-import org.json.JSONObject;
 import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -14,6 +10,10 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLooper;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
@@ -39,7 +39,7 @@ public class SessionTest extends BaseTest {
 
     @Before
     public void setUp() throws Exception {
-        super.setUp();
+        super.setUp(true);
     }
 
     @After
@@ -50,7 +50,7 @@ public class SessionTest extends BaseTest {
     @Test
     public void testDefaultStartSession() {
         long timestamp = System.currentTimeMillis();
-        amplitude.logEventAsync("test", null, null, timestamp, false);
+        amplitude.logEventAsync("test", null, null, null, timestamp, false);
         Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
 
         // trackSessionEvents is false, no start_session event added
@@ -68,13 +68,13 @@ public class SessionTest extends BaseTest {
 
         // log 1st event, initialize first session
         long timestamp1 = System.currentTimeMillis();
-        amplitude.logEventAsync("test1", null, null, timestamp1, false);
+        amplitude.logEventAsync("test1", null, null, null, timestamp1, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 1);
 
         // log 2nd event past timeout, verify new session started
         long timestamp2 = timestamp1 + sessionTimeoutMillis;
-        amplitude.logEventAsync("test2", null, null, timestamp2, false);
+        amplitude.logEventAsync("test2", null, null, null, timestamp2, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 2);
 
@@ -96,17 +96,17 @@ public class SessionTest extends BaseTest {
 
         // log 3 events all just within session expiration window, verify all in same session
         long timestamp1 = System.currentTimeMillis();
-        amplitude.logEventAsync("test1", null, null, timestamp1, false);
+        amplitude.logEventAsync("test1", null, null, null, timestamp1, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 1);
 
         long timestamp2 = timestamp1 + sessionTimeoutMillis - 1;
-        amplitude.logEventAsync("test2", null, null, timestamp2, false);
+        amplitude.logEventAsync("test2", null, null, null, timestamp2, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 2);
 
         long timestamp3 = timestamp2 + sessionTimeoutMillis - 1;
-        amplitude.logEventAsync("test3", null, null, timestamp3, false);
+        amplitude.logEventAsync("test3", null, null, null, timestamp3, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 3);
 
@@ -133,7 +133,7 @@ public class SessionTest extends BaseTest {
         amplitude.trackSessionEvents(true);
 
         long timestamp = System.currentTimeMillis();
-        amplitude.logEventAsync("test", null, null, timestamp, false);
+        amplitude.logEventAsync("test", null, null, null, timestamp, false);
         Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
 
         // trackSessions is true, start_session event is added
@@ -158,7 +158,7 @@ public class SessionTest extends BaseTest {
         amplitude.trackSessionEvents(true);
 
         long timestamp = System.currentTimeMillis();
-        amplitude.logEvent("test", null, null, timestamp, false);
+        amplitude.logEvent("test", null, null, null, timestamp, false);
         Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         // trackSessions is true, start_session event is added
         assertEquals(getUnsentEventCount(), 2);
@@ -189,14 +189,14 @@ public class SessionTest extends BaseTest {
 
         // log 1st event, initialize first session
         long timestamp1 = System.currentTimeMillis();
-        amplitude.logEventAsync("test1", null, null, timestamp1, false);
+        amplitude.logEventAsync("test1", null, null, null, timestamp1, false);
         looper.runToEndOfTasks();
         // trackSessions is true, start_session event is added
         assertEquals(getUnsentEventCount(), 2);
 
         // log 2nd event past timeout, verify new session started
         long timestamp2 = timestamp1 + sessionTimeoutMillis;
-        amplitude.logEventAsync("test2", null, null, timestamp2, false);
+        amplitude.logEventAsync("test2", null, null, null, timestamp2, false);
         looper.runToEndOfTasks();
         // trackSessions is true, end_session and start_session events are added
         assertEquals(getUnsentEventCount(), 5);
@@ -248,14 +248,14 @@ public class SessionTest extends BaseTest {
 
         // log 1st event, initialize first session
         long timestamp1 = System.currentTimeMillis();
-        amplitude.logEvent("test1", null, null, timestamp1, false);
+        amplitude.logEvent("test1", null, null, null, timestamp1, false);
         looper.runToEndOfTasks();
         // trackSessions is true, start_session event is added
         assertEquals(getUnsentEventCount(), 2);
 
         // log 2nd event past timeout, verify new session started
         long timestamp2 = timestamp1 + sessionTimeoutMillis;
-        amplitude.logEvent("test2", null, null, timestamp2, false);
+        amplitude.logEvent("test2", null, null, null, timestamp2, false);
         looper.runToEndOfTasks();
         // trackSessions is true, end_session and start_session events are added
         assertEquals(getUnsentEventCount(), 5);
@@ -308,18 +308,18 @@ public class SessionTest extends BaseTest {
 
         // log 3 events all just within session expiration window, verify all in same session
         long timestamp1 = System.currentTimeMillis();
-        amplitude.logEventAsync("test1", null, null, timestamp1, false);
+        amplitude.logEventAsync("test1", null, null, null, timestamp1, false);
         looper.runToEndOfTasks();
         // trackSessions is true, start_session event is added
         assertEquals(getUnsentEventCount(), 2);
 
         long timestamp2 = timestamp1 + sessionTimeoutMillis - 1;
-        amplitude.logEventAsync("test2", null, null, timestamp2, false);
+        amplitude.logEventAsync("test2", null, null, null, timestamp2, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 3);
 
         long timestamp3 = timestamp2 + sessionTimeoutMillis - 1;
-        amplitude.logEventAsync("test3", null, null, timestamp3, false);
+        amplitude.logEventAsync("test3", null, null, null, timestamp3, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 4);
 
@@ -359,18 +359,18 @@ public class SessionTest extends BaseTest {
 
         // log 3 events all just within session expiration window, verify all in same session
         long timestamp1 = System.currentTimeMillis();
-        amplitude.logEvent("test1", null, null, timestamp1, false);
+        amplitude.logEvent("test1", null, null, null, timestamp1, false);
         looper.runToEndOfTasks();
         // trackSessions is true, start_session event is added
         assertEquals(getUnsentEventCount(), 2);
 
         long timestamp2 = timestamp1 + sessionTimeoutMillis - 1;
-        amplitude.logEvent("test2", null, null, timestamp2, false);
+        amplitude.logEvent("test2", null, null, null, timestamp2, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 3);
 
         long timestamp3 = timestamp2 + sessionTimeoutMillis - 1;
-        amplitude.logEventAsync("test3", null, null, timestamp3, false);
+        amplitude.logEventAsync("test3", null, null, null, timestamp3, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 4);
 
@@ -420,6 +420,7 @@ public class SessionTest extends BaseTest {
         assertFalse(amplitude.isInForeground());
 
         callBacks.onActivityResumed(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertTrue(amplitude.isInForeground());
         assertEquals(amplitude.getPreviousSessionId(), timestamp);
         assertEquals(amplitude.getLastEventId(), -1);
@@ -476,11 +477,13 @@ public class SessionTest extends BaseTest {
         assertEquals(amplitude.getLastEventTime(), -1);
 
         callBacks.onActivityResumed(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamps[0]);
         assertEquals(amplitude.getLastEventId(), -1);
         assertEquals(amplitude.getLastEventTime(), timestamps[0]);
 
         callBacks.onActivityPaused(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamps[0]);
         assertEquals(amplitude.getLastEventId(), -1);
         assertEquals(amplitude.getLastEventTime(), timestamps[1]);
@@ -536,6 +539,7 @@ public class SessionTest extends BaseTest {
         assertEquals(getUnsentEventCount(), 0);
 
         callBacks.onActivityResumed(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamps[0]);
         assertEquals(amplitude.getLastEventId(), -1);
         assertEquals(amplitude.getLastEventTime(), timestamps[0]);
@@ -544,6 +548,7 @@ public class SessionTest extends BaseTest {
 
         // only refresh time, no session checking
         callBacks.onActivityPaused(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamps[0]);
         assertEquals(amplitude.getLastEventId(), -1);
         assertEquals(amplitude.getLastEventTime(), timestamps[1]);
@@ -552,6 +557,7 @@ public class SessionTest extends BaseTest {
 
         // resume after min session expired window, verify new session started
         callBacks.onActivityResumed(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamps[2]);
         assertEquals(amplitude.getLastEventId(), -1);
         assertEquals(amplitude.getLastEventTime(), timestamps[2]);
@@ -651,17 +657,20 @@ public class SessionTest extends BaseTest {
         assertEquals(amplitude.getLastEventTime(), -1);
 
         callBacks.onActivityResumed(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamps[0]);
         assertEquals(amplitude.getLastEventId(), -1);
         assertEquals(amplitude.getLastEventTime(), timestamps[0]);
 
         callBacks.onActivityPaused(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamps[0]);
         assertEquals(amplitude.getLastEventId(), -1);
         assertEquals(amplitude.getLastEventTime(), timestamps[1]);
         assertFalse(amplitude.isInForeground());
 
         callBacks.onActivityResumed(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamps[0]);
         assertEquals(amplitude.getLastEventId(), -1);
         assertEquals(amplitude.getLastEventTime(), timestamps[2]);
@@ -736,7 +745,7 @@ public class SessionTest extends BaseTest {
         assertFalse(amplitude.isInForeground());
 
         // logging an event before onResume will force a session check
-        amplitude.logEventAsync("test", null, null, timestamp, false);
+        amplitude.logEventAsync("test", null, null, null, timestamp, false);
         looper.runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamp);
         assertEquals(amplitude.getLastEventId(), 1);
@@ -744,6 +753,7 @@ public class SessionTest extends BaseTest {
         assertEquals(getUnsentEventCount(), 1);
 
         callBacks.onActivityResumed(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamp);
         assertEquals(amplitude.getLastEventId(), 1);
         assertEquals(amplitude.getLastEventTime(), timestamps[0]);
@@ -773,7 +783,7 @@ public class SessionTest extends BaseTest {
         assertFalse(amplitude.isInForeground());
 
         // logging an event before onResume will force a session check
-        amplitude.logEventAsync("test", null, null, timestamp, false);
+        amplitude.logEventAsync("test", null, null, null, timestamp, false);
         looper.runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamp);
         assertEquals(amplitude.getLastEventId(), 2);
@@ -782,6 +792,7 @@ public class SessionTest extends BaseTest {
 
         // onResume after session expires will start new session
         callBacks.onActivityResumed(null);
+        Shadows.shadowOf(amplitude.logThread.getLooper()).runToEndOfTasks();
         assertEquals(amplitude.getPreviousSessionId(), timestamps[0]);
         assertEquals(amplitude.getLastEventId(), 4);
         assertEquals(amplitude.getLastEventTime(), timestamps[0]);
@@ -831,19 +842,19 @@ public class SessionTest extends BaseTest {
         amplitude.setSessionTimeoutMillis(sessionTimeoutMillis);
 
         long timestamp1 = System.currentTimeMillis();
-        amplitude.logEventAsync("test1", null, null, timestamp1, false);
+        amplitude.logEventAsync("test1", null, null, null, timestamp1, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 1);
 
         // log out of session event just within session expiration window
         long timestamp2 = timestamp1 + sessionTimeoutMillis - 1;
-        amplitude.logEventAsync("outOfSession", null, null, timestamp2, true);
+        amplitude.logEventAsync("outOfSession", null, null, null, timestamp2, true);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 2);
 
         // out of session events do not extend session, 2nd event will start new session
         long timestamp3 = timestamp1 + sessionTimeoutMillis;
-        amplitude.logEventAsync("test2", null, null, timestamp3, false);
+        amplitude.logEventAsync("test2", null, null, null, timestamp3, false);
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 3);
 

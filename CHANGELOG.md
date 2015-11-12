@@ -1,8 +1,31 @@
 ## Unreleased
 
+## 2.2.0 (October 20, 2015)
+
+* Removed all references to Apache HTTPClient to support Android M.
+* Handle exceptions when fetching last known location from LocationManager.
+* Add ability to set custom deviceId.
+* Handle exception when cloning JSON object.
+* Maintain only one instance of OKHttpClient.
+* Add AmplitudeLog helper class that supports enabling and disabling of logging as well as setting of the log level.
+* Fix bug where event and identify queues are not truncated if eventMaxCount is less than eventRemoveBatchSize.
+
+## 2.1.0 (October 04, 2015)
+
+* Add support for user properties operations (set, setOnce, add, unset).
+* Fix bug where end session event was not being sent upon app reopen.
+
+## 2.0.4 (September 23, 2015)
+
+* Fix bug where deviceInfo was trying to use Geocoder if none present.
+
+## 2.0.3 (September 22, 2015)
+
+* Fix bug where deviceId was being fetched on main thread.
+
 ## 2.0.2 (August 24, 2015)
 
-* Fixed Maven jar, fixed build file
+* Fix Maven jar, fixed build file.
 
 ## 2.0.1 (August 21, 2015)
 

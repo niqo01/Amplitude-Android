@@ -1,25 +1,26 @@
 package com.amplitude.api;
 
+import com.squareup.okhttp.OkHttpClient;
+
 import java.io.IOException;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
+
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 
-import com.squareup.okhttp.OkHttpClient;
 import okio.Buffer;
 import okio.ByteString;
-
-import android.util.Log;
 
 public class PinnedAmplitudeClient extends AmplitudeClient {
 
     public static final String TAG = "com.amplitude.api.PinnedAmplitudeClient";
+    private static AmplitudeLog logger = AmplitudeLog.getLogger();
 
     /**
      * Pinned certificate chain for api.amplitude.com.
@@ -124,9 +125,9 @@ public class PinnedAmplitudeClient extends AmplitudeClient {
                 sslContext.init(null, trustManagerFactory.getTrustManagers(), null);
                 return sslContext;
             } catch (GeneralSecurityException e) {
-                Log.e(TAG, e.getMessage(), e);
+                logger.e(TAG, e.getMessage(), e);
             } catch (IOException e) {
-                Log.e(TAG, e.getMessage(), e);
+                logger.e(TAG, e.getMessage(), e);
             }
             return null;
         }
@@ -155,23 +156,23 @@ public class PinnedAmplitudeClient extends AmplitudeClient {
         if (sslSocketFactory == null) {
             try {
                 sslSocketFactory = context.build().getSocketFactory();
-                Log.i(TAG, "Pinning SSL session using Comodo CA Cert");
+                logger.i(TAG, "Pinning SSL session using Comodo CA Cert");
             } catch (Exception e) {
-                Log.e(TAG, e.getMessage(), e);
+                logger.e(TAG, e.getMessage(), e);
             }
         }
         return sslSocketFactory;
     }
 
     @Override
-    protected void makeEventUploadPostRequest(OkHttpClient client, String events, final long maxId, Amplitude.UploadCallback callback) {
+    protected void makeEventUploadPostRequest(OkHttpClient client, String events, final long maxEventId, final long maxIdentifyId, Amplitude.UploadCallback callback) {
         SSLSocketFactory factory = getPinnedCertSslSocketFactory();
         if (factory != null) {
             client.setSslSocketFactory(factory);
-            super.makeEventUploadPostRequest(client, events, maxId, callback);
+            super.makeEventUploadPostRequest(client, events, maxEventId, maxIdentifyId, callback);
         }
         else {
-            Log.e(TAG, "Unable to pin SSL as requested. Cowardly refusing to send data.");
+            logger.e(TAG, "Unable to pin SSL as requested. Cowardly refusing to send data.");
         }
     }
 }
