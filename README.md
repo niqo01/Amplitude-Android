@@ -10,31 +10,31 @@ A [demo application](https://github.com/amplitude/Android-Demo) is available to 
 # Setup #
 1. If you haven't already, go to https://amplitude.com/signup and register for an account. Then, add an app. You will receive an API Key.
 
-2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.5.1-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
+2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.6.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
 
-  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.5.1%7Cjar) using the following configuration in your pom.xml:
+  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.6.0%7Cjar) using the following configuration in your pom.xml:
 
     ```
     <dependency>
       <groupId>com.amplitude</groupId>
       <artifactId>android-sdk</artifactId>
-      <version>2.5.1</version>
+      <version>2.6.0</version>
     </dependency>
     ```
 
   Or if you are using gradle in your project, include in your build.gradle file:
 
     ```
-    compile 'com.amplitude:android-sdk:2.5.1'
+    compile 'com.amplitude:android-sdk:2.6.0'
     ```
 
-4.  In every file that uses analytics, import com.amplitude.api.Amplitude at the top:
+3.  In every file that uses analytics, import com.amplitude.api.Amplitude at the top:
 
     ```java
     import com.amplitude.api.Amplitude;
     ```
 
-5. In the `onCreate()` of your main activity, initialize the SDK:
+4. In the `onCreate()` of your main activity, initialize the SDK:
 
     ```java
     Amplitude.getInstance().initialize(this, "YOUR_API_KEY_HERE").enableForegroundTracking(getApplication());
@@ -42,26 +42,37 @@ A [demo application](https://github.com/amplitude/Android-Demo) is available to 
 
     Note: if your app has multiple entry points/exit points, you should make a `Amplitude.getInstance().initialize()` at every `onCreate()` entry point.
 
-6. To track an event anywhere in the app, call:
+5. To track an event anywhere in the app, call:
 
     ```java
     Amplitude.getInstance().logEvent("EVENT_IDENTIFIER_HERE");
     ```
 
-7. If you want to use Google Advertising IDs, make sure to add [Google Play Services](https://developer.android.com/google/play-services/setup.html) to your project. _This is required for integrating with third party attribution services_
+6. If you want to use Google Advertising IDs, make sure to add [Google Play Services](https://developer.android.com/google/play-services/setup.html) to your project. _This is required for integrating with third party attribution services_
 
-8. If you are using Proguard, add these exceptions to ```proguard.pro``` for Google Play Advertising IDs and Amplitude dependencies:
+7. If you are using Proguard, add these exceptions to ```proguard.pro``` for Google Play Advertising IDs and Amplitude dependencies:
 
     ```yaml
         -keep class com.google.android.gms.ads.** { *; }
         -dontwarn okio.**
     ```
 
-9. Events are saved locally. Uploads are batched to occur every 30 events and every 30 seconds. After calling `logEvent()` in your app, you will immediately see data appear on the Amplitude website.
+8. Events are saved locally. Uploads are batched to occur every 30 events and every 30 seconds. After calling `logEvent()` in your app, you will immediately see data appear on the Amplitude website.
 
 # Tracking Events #
 
-It's important to think about what types of events you care about as a developer. You should aim to track between 20 and 100 types of events within your app. Common event types are different screens within the app, actions a user initiates (such as pressing a button), and events you want a user to complete (such as filling out a form, completing a level, or making a payment). Contact us if you want assistance determining what would be best for you to track.
+It's important to think about what types of events you care about as a developer. You should aim to track between 20 and 200 types of events on your site. Common event types are actions the user initiates (such as pressing a button) and events you want the user to complete (such as filling out a form, completing a level, or making a payment).
+
+Here are some resources to help you with your instrumentation planning:
+  * [Event Tracking Quick Start Guide](https://amplitude.zendesk.com/hc/en-us/articles/207108137).
+  * [Event Taxonomy and Best Practices](https://amplitude.zendesk.com/hc/en-us/articles/211988918).
+
+Having large amounts of distinct event types, event properties and user properties, however, can make visualizing and searching of the data very confusing. By default we only show the first:
+  * 1000 distinct event types
+  * 2000 distinct event properties
+  * 1000 distinct user properties
+
+Anything past the above thresholds will not be visualized. **Note that the raw data is not impacted by this in any way, meaning you can still see the values in the raw data, but they will not be visualized on the platform.** We have put in very conservative estimates for the event and property caps which we don’t expect to be exceeded in any practical use case. If you feel that your use case will go above those limits please reach out to support@amplitude.com.
 
 # Tracking Sessions #
 
@@ -169,6 +180,13 @@ import com.amplitude.api.Identify;
 
     ```java
     Identify identify = new Identify().append("ab-tests", "new-user-test").append("some_list", new JSONArray().put(1).put("some_string"));
+    Amplitude.getInstance().identify(identify);
+    ```
+
+6. `prepend`: this will prepend a value or values to a user property. Prepend means inserting the value(s) at the front of a given list. If the user property does not have a value set yet, it will be initialized to an empty list before the new values are prepended. If the user property has an existing value and it is not a list, it will be converted into a list with the new value prepended.
+
+    ```java
+    Identify identify = new Identify().prepend("ab-tests", "new-user-test").prepend("some_list", new JSONArray().put(1).put("some_string"));
     Amplitude.getInstance().identify(identify);
     ```
 

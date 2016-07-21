@@ -11,11 +11,6 @@ import android.util.Log;
 import android.util.Pair;
 
 import com.amplitude.security.MD5;
-import com.squareup.okhttp.FormEncodingBuilder;
-import com.squareup.okhttp.OkHttpClient;
-import com.squareup.okhttp.Request;
-import com.squareup.okhttp.RequestBody;
-import com.squareup.okhttp.Response;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -31,6 +26,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import okhttp3.FormBody;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+
 public class AmplitudeClient {
 
     public static final String TAG = "com.amplitude.api.AmplitudeClient";
@@ -38,15 +38,23 @@ public class AmplitudeClient {
     public static final String START_SESSION_EVENT = "session_start";
     public static final String END_SESSION_EVENT = "session_end";
     public static final String REVENUE_EVENT = "revenue_amount";
+
+    // database valueStore keys
     public static final String DEVICE_ID_KEY = "device_id";
+    public static final String USER_ID_KEY = "user_id";
+    public static final String OPT_OUT_KEY = "opt_out";
     public static final String SEQUENCE_NUMBER_KEY = "sequence_number";
+    public static final String LAST_EVENT_TIME_KEY = "last_event_time";
+    public static final String LAST_EVENT_ID_KEY = "last_event_id";
+    public static final String LAST_IDENTIFY_ID_KEY = "last_identify_id";
+    public static final String PREVIOUS_SESSION_ID_KEY = "previous_session_id";
+
 
     protected static AmplitudeClient instance = new AmplitudeClient();
 
     public static AmplitudeClient getInstance() {
         return instance;
     }
-
 
     private static final Amplitude.UploadCallback EMPTY = new Amplitude.UploadCallback() {
         @Override public void onComplete() {
@@ -58,10 +66,11 @@ public class AmplitudeClient {
         }
     };
 
-    private static AmplitudeLog logger = AmplitudeLog.getLogger();
+    private static final AmplitudeLog logger = AmplitudeLog.getLogger();
 
     protected Context context;
     protected OkHttpClient httpClient;
+    protected DatabaseHelper dbHelper;
     protected String apiKey;
     protected String userId;
     protected String deviceId;
@@ -73,7 +82,7 @@ public class AmplitudeClient {
 
     private DeviceInfo deviceInfo;
 
-    private long sessionId = -1;
+    long sessionId = -1;
     private int eventUploadThreshold = Constants.EVENT_UPLOAD_THRESHOLD;
     private int eventUploadMaxBatchSize = Constants.EVENT_UPLOAD_MAX_BATCH_SIZE;
     private int eventMaxCount = Constants.EVENT_MAX_COUNT;
@@ -115,7 +124,7 @@ public class AmplitudeClient {
         }
 
         AmplitudeClient.upgradePrefs(context);
-        AmplitudeClient.upgradeDeviceIdToDB(context);
+        AmplitudeClient.upgradeSharedPrefsToDB(context);
 
         if (TextUtils.isEmpty(apiKey)) {
             logger.e(TAG, "Argument apiKey cannot be null or blank in initialize()");
@@ -125,17 +134,18 @@ public class AmplitudeClient {
         if (!initialized) {
             this.context = context.getApplicationContext();
             this.httpClient = okHttpClient == null ? new OkHttpClient(): okHttpClient;
+            this.dbHelper = DatabaseHelper.getDatabaseHelper(this.context);
             this.apiKey = apiKey;
             initializeDeviceInfo();
-            SharedPreferences preferences = context.getSharedPreferences(
-                    getSharedPreferencesName(), Context.MODE_PRIVATE);
+
             if (userId != null) {
                 this.userId = userId;
-                preferences.edit().putString(Constants.PREFKEY_USER_ID, userId).commit();
+                dbHelper.insertOrReplaceKeyValue(USER_ID_KEY, userId);
             } else {
-                this.userId = preferences.getString(Constants.PREFKEY_USER_ID, null);
+                this.userId = dbHelper.getValue(USER_ID_KEY);
             }
-            this.optOut = preferences.getBoolean(Constants.PREFKEY_OPT_OUT, false);
+            Long optOut = dbHelper.getLongValue(OPT_OUT_KEY);
+            this.optOut = optOut != null && optOut == 1;
 
             // try to restore previous session id
             long previousSessionId = getPreviousSessionId();
@@ -238,11 +248,12 @@ public class AmplitudeClient {
         }
 
         this.optOut = optOut;
-
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        preferences.edit().putBoolean(Constants.PREFKEY_OPT_OUT, optOut).commit();
+        dbHelper.insertOrReplaceKeyLongValue(OPT_OUT_KEY, optOut ? 1L : 0L);
         return instance;
+    }
+
+    public boolean isOptedOut() {
+        return optOut;
     }
 
     public AmplitudeClient enableLogging(boolean enableLogging) {
@@ -284,8 +295,14 @@ public class AmplitudeClient {
 
     public void logEvent(String eventType, JSONObject eventProperties, boolean outOfSession) {
         if (validateLogEvent(eventType)) {
-            logEventAsync(eventType, eventProperties, null, null, getCurrentTimeMillis(), outOfSession);
+            logEventAsync(
+                eventType, eventProperties, null, null, getCurrentTimeMillis(), outOfSession
+            );
         }
+    }
+
+    public void logEventSync(String eventType) {
+        logEventSync(eventType, null);
     }
 
     public void logEventSync(String eventType, JSONObject eventProperties) {
@@ -294,7 +311,9 @@ public class AmplitudeClient {
 
     public void logEventSync(String eventType, JSONObject eventProperties, boolean outOfSession) {
         if (validateLogEvent(eventType)) {
-            logEvent(eventType, eventProperties, null, null, getCurrentTimeMillis(), outOfSession);
+            logEvent(
+                eventType, eventProperties, null, null, getCurrentTimeMillis(), outOfSession
+            );
         }
     }
 
@@ -304,15 +323,11 @@ public class AmplitudeClient {
             return false;
         }
 
-        if (!contextAndApiKeySet("logEvent()")) {
-            return false;
-        }
-
-        return true;
+        return contextAndApiKeySet("logEvent()");
     }
 
     protected void logEventAsync(final String eventType, JSONObject eventProperties,
-            final JSONObject apiProperties, final JSONObject userProperties,
+            final JSONObject apiProperties, JSONObject userProperties,
             final long timestamp, final boolean outOfSession) {
         // Clone the incoming eventProperties object before sending over
         // to the log thread. Helps avoid ConcurrentModificationException
@@ -323,11 +338,19 @@ public class AmplitudeClient {
             eventProperties = cloneJSONObject(eventProperties);
         }
 
+        if (userProperties != null) {
+            userProperties = cloneJSONObject(userProperties);
+        }
+
         final JSONObject copyEventProperties = eventProperties;
+        final JSONObject copyUserProperties = userProperties;
         runOnLogThread(new Runnable() {
             @Override
             public void run() {
-                logEvent(eventType, copyEventProperties, apiProperties, userProperties, timestamp, outOfSession);
+                logEvent(
+                    eventType, copyEventProperties, apiProperties,
+                    copyUserProperties, timestamp, outOfSession
+                );
             }
         });
     }
@@ -405,7 +428,6 @@ public class AmplitudeClient {
     }
 
     protected long saveEvent(String eventType, JSONObject event) {
-        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
         long eventId;
         if (eventType.equals(Constants.IDENTIFY_EVENT)) {
             eventId = dbHelper.addIdentify(event.toString());
@@ -437,66 +459,51 @@ public class AmplitudeClient {
         return eventId;
     }
 
+    // fetches key from dbHelper longValueStore
+    // if key does not exist, return defaultValue instead
+    private long getLongvalue(String key, long defaultValue) {
+        Long value = dbHelper.getLongValue(key);
+        return value == null ? defaultValue : value;
+    }
+
     // shared sequence number for ordering events and identifys
     long getNextSequenceNumber() {
-        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
-
-        Long sequenceNumber = dbHelper.getLongValue(SEQUENCE_NUMBER_KEY);
-        if (sequenceNumber == null) {
-            sequenceNumber = 0L;
-        }
-
+        long sequenceNumber = getLongvalue(SEQUENCE_NUMBER_KEY, 0);
         sequenceNumber++;
         dbHelper.insertOrReplaceKeyLongValue(SEQUENCE_NUMBER_KEY, sequenceNumber);
         return sequenceNumber;
     }
 
     long getLastEventTime() {
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        return preferences.getLong(Constants.PREFKEY_LAST_EVENT_TIME, -1);
+        return getLongvalue(LAST_EVENT_TIME_KEY, -1);
     }
 
     void setLastEventTime(long timestamp) {
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        preferences.edit().putLong(Constants.PREFKEY_LAST_EVENT_TIME, timestamp).commit();
+        dbHelper.insertOrReplaceKeyLongValue(LAST_EVENT_TIME_KEY, timestamp);
     }
 
     long getLastEventId() {
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        return preferences.getLong(Constants.PREFKEY_LAST_EVENT_ID, -1);
+        return getLongvalue(LAST_EVENT_ID_KEY, -1);
     }
 
     void setLastEventId(long eventId) {
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        preferences.edit().putLong(Constants.PREFKEY_LAST_EVENT_ID, eventId).commit();
+        dbHelper.insertOrReplaceKeyLongValue(LAST_EVENT_ID_KEY, eventId);
     }
 
     long getLastIdentifyId() {
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        return preferences.getLong(Constants.PREFKEY_LAST_IDENTIFY_ID, -1);
+        return getLongvalue(LAST_IDENTIFY_ID_KEY, -1);
     }
 
     void setLastIdentifyId(long identifyId) {
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        preferences.edit().putLong(Constants.PREFKEY_LAST_IDENTIFY_ID, identifyId).commit();
+        dbHelper.insertOrReplaceKeyLongValue(LAST_IDENTIFY_ID_KEY, identifyId);
     }
 
     long getPreviousSessionId() {
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        return preferences.getLong(Constants.PREFKEY_PREVIOUS_SESSION_ID, -1);
+        return getLongvalue(PREVIOUS_SESSION_ID_KEY, -1);
     }
 
     void setPreviousSessionId(long timestamp) {
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        preferences.edit().putLong(Constants.PREFKEY_PREVIOUS_SESSION_ID, timestamp).commit();
+        dbHelper.insertOrReplaceKeyLongValue(PREVIOUS_SESSION_ID_KEY, timestamp);
     }
 
     boolean startNewSessionIfNeeded(long timestamp) {
@@ -636,7 +643,9 @@ public class AmplitudeClient {
             logger.e(TAG, e.toString());
         }
 
-        logEventAsync(REVENUE_EVENT, null, apiProperties, null, getCurrentTimeMillis(), false);
+        logEventAsync(
+                REVENUE_EVENT, null, apiProperties, null, getCurrentTimeMillis(), false
+        );
     }
 
     // maintain for backwards compatibility
@@ -754,9 +763,7 @@ public class AmplitudeClient {
         }
 
         this.userId = userId;
-        SharedPreferences preferences = context.getSharedPreferences(
-                getSharedPreferencesName(), Context.MODE_PRIVATE);
-        preferences.edit().putString(Constants.PREFKEY_USER_ID, userId).commit();
+        dbHelper.insertOrReplaceKeyValue(USER_ID_KEY, userId);
         return instance;
     }
 
@@ -768,7 +775,7 @@ public class AmplitudeClient {
         }
 
         this.deviceId = deviceId;
-        DatabaseHelper.getDatabaseHelper(context).insertOrReplaceKeyValue(DEVICE_ID_KEY, deviceId);
+        dbHelper.insertOrReplaceKeyValue(DEVICE_ID_KEY, deviceId);
         return instance;
     }
 
@@ -817,7 +824,6 @@ public class AmplitudeClient {
 
         // if returning out of this block, always be sure to set uploadingCurrently to false!!
         if (!uploadingCurrently.getAndSet(true)) {
-            DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
             long totalEventCount = dbHelper.getTotalEventCount();
             long batchSize = Math.min(
                 limit ? backoffUploadBatchSize : eventUploadMaxBatchSize,
@@ -835,14 +841,19 @@ public class AmplitudeClient {
 
                 final Pair<Pair<Long, Long>, JSONArray> merged = mergeEventsAndIdentifys(
                         events, identifys, batchSize);
+                final JSONArray mergedEvents = merged.second;
+                if (mergedEvents.length() == 0) {
+                    uploadingCurrently.set(false);
+                    return;
+                }
                 final long maxEventId = merged.first.first;
                 final long maxIdentifyId = merged.first.second;
-                final String mergedEvents = merged.second.toString();
+                final String mergedEventsString = merged.second.toString();
 
                 httpThread.post(new Runnable() {
                     @Override
                     public void run() {
-                        makeEventUploadPostRequest(httpClient, mergedEvents, maxEventId, maxIdentifyId, callback);
+                        makeEventUploadPostRequest(httpClient, mergedEventsString, maxEventId, maxIdentifyId, callback);
                     }
                 });
             } catch (JSONException e) {
@@ -864,14 +875,27 @@ public class AmplitudeClient {
         long maxIdentifyId = -1;
 
         while (merged.length() < numEvents) {
+            boolean noEvents = events.isEmpty();
+            boolean noIdentifys = identifys.isEmpty();
+
+            // case 0: no events or identifys, nothing to grab
+            // this case should never happen, as it means there are less identifys and events
+            // than expected
+            if (noEvents && noIdentifys) {
+                logger.w(TAG, String.format(
+                    "mergeEventsAndIdentifys: number of events and identifys " +
+                    "less than expected by %d", numEvents - merged.length())
+                );
+                break;
+
             // case 1: no identifys, grab from events
-            if (identifys.size() == 0) {
+            } else if (noIdentifys) {
                 JSONObject event = events.remove(0);
                 maxEventId = event.getLong("event_id");
                 merged.put(event);
 
             // case 2: no events, grab from identifys
-            } else if (events.size() == 0) {
+            } else if (noEvents) {
                 JSONObject identify = identifys.remove(0);
                 maxIdentifyId = identify.getLong("event_id");
                 merged.put(identify);
@@ -918,7 +942,7 @@ public class AmplitudeClient {
 
         }
 
-        RequestBody body = new FormEncodingBuilder()
+        FormBody body = new FormBody.Builder()
             .add("v", apiVersionString)
             .add("client", apiKey)
             .add("e", events)
@@ -941,7 +965,6 @@ public class AmplitudeClient {
                 logThread.post(new Runnable() {
                     @Override
                     public void run() {
-                        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
                         if (maxEventId >= 0) dbHelper.removeEvents(maxEventId);
                         if (maxIdentifyId >= 0) dbHelper.removeIdentifys(maxIdentifyId);
                         uploadingCurrently.set(false);
@@ -970,7 +993,6 @@ public class AmplitudeClient {
             } else if (response.code() == 413) {
 
                 // If blocked by one massive event, drop it
-                DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
                 if (backoffUpload && backoffUploadBatchSize == 1) {
                     if (maxEventId >= 0) dbHelper.removeEvent(maxEventId);
                     if (maxIdentifyId >= 0) dbHelper.removeIdentify(maxIdentifyId);
@@ -1046,7 +1068,6 @@ public class AmplitudeClient {
         Set<String> invalidIds = getInvalidDeviceIds();
 
         // see if device id already stored in db
-        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
         String deviceId = dbHelper.getValue(DEVICE_ID_KEY);
         if (!(TextUtils.isEmpty(deviceId) || invalidIds.contains(deviceId))) {
             return deviceId;
@@ -1095,10 +1116,6 @@ public class AmplitudeClient {
             return false;
         }
         return true;
-    }
-
-    protected String getSharedPreferencesName() {
-        return Constants.SHARED_PREFERENCES_NAME_PREFIX + "." + context.getPackageName();
     }
 
     protected String bytesToHexString(byte[] bytes) {
@@ -1229,36 +1246,93 @@ public class AmplitudeClient {
     }
 
     /*
-     * Move device ID from sharedPrefs to new sqlite key value store.
-     *
-     * This should only happen once -- the first time a user loads the app after updating.
-     * This should happen only after moving the preference data from legacy to new static name.
-     * This logic needs to remain in place for quite a long time. It was first introduced in
-     * August 2015 in version 1.8.0.
+     * Move all data from sharedPrefs to sqlite key value store to support multi-process apps.
+     * sharedPrefs is known to not be process-safe.
      */
-    static boolean upgradeDeviceIdToDB(Context context) {
-        return upgradeDeviceIdToDB(context, null);
+    static boolean upgradeSharedPrefsToDB(Context context) {
+        return upgradeSharedPrefsToDB(context, null);
     }
 
-    static boolean upgradeDeviceIdToDB(Context context, String sourcePkgName) {
+    static boolean upgradeSharedPrefsToDB(Context context, String sourcePkgName) {
         if (sourcePkgName == null) {
             sourcePkgName = Constants.PACKAGE_NAME;
+        }
+
+        // check if upgrade needed
+        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
+        String deviceId = dbHelper.getValue(DEVICE_ID_KEY);
+        Long previousSessionId = dbHelper.getLongValue(PREVIOUS_SESSION_ID_KEY);
+        Long lastEventTime = dbHelper.getLongValue(LAST_EVENT_TIME_KEY);
+        if (!TextUtils.isEmpty(deviceId) && previousSessionId != null && lastEventTime != null) {
+            return true;
         }
 
         String prefsName = sourcePkgName + "." + context.getPackageName();
         SharedPreferences preferences =
                 context.getSharedPreferences(prefsName, Context.MODE_PRIVATE);
 
-        String deviceId = preferences.getString(Constants.PREFKEY_DEVICE_ID, null);
-        if (!TextUtils.isEmpty(deviceId)) {
-            DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
-            dbHelper.insertOrReplaceKeyValue(DEVICE_ID_KEY, deviceId);
+        migrateStringValue(
+            preferences, Constants.PREFKEY_DEVICE_ID, null, dbHelper, DEVICE_ID_KEY
+        );
 
-            // remove device id from sharedPrefs so that this upgrade occurs only once
-            preferences.edit().remove(Constants.PREFKEY_DEVICE_ID).apply();
-        }
+        migrateLongValue(
+            preferences, Constants.PREFKEY_LAST_EVENT_TIME, -1, dbHelper, LAST_EVENT_TIME_KEY
+        );
+
+        migrateLongValue(
+            preferences, Constants.PREFKEY_LAST_EVENT_ID, -1, dbHelper, LAST_EVENT_ID_KEY
+        );
+
+        migrateLongValue(
+            preferences, Constants.PREFKEY_LAST_IDENTIFY_ID, -1, dbHelper, LAST_IDENTIFY_ID_KEY
+        );
+
+        migrateLongValue(
+            preferences, Constants.PREFKEY_PREVIOUS_SESSION_ID, -1,
+            dbHelper, PREVIOUS_SESSION_ID_KEY
+        );
+
+        migrateStringValue(
+            preferences, Constants.PREFKEY_USER_ID, null, dbHelper, USER_ID_KEY
+        );
+
+        migrateBooleanValue(
+            preferences, Constants.PREFKEY_OPT_OUT, false, dbHelper, OPT_OUT_KEY
+        );
 
         return true;
+    }
+
+    private static void migrateLongValue(SharedPreferences prefs, String prefKey, long defValue, DatabaseHelper dbHelper, String dbKey) {
+        Long value = dbHelper.getLongValue(dbKey);
+        if (value != null) { // if value already exists don't need to migrate
+            return;
+        }
+        long oldValue = prefs.getLong(prefKey, defValue);
+        dbHelper.insertOrReplaceKeyLongValue(dbKey, oldValue);
+        prefs.edit().remove(prefKey).apply();
+    }
+
+    private static void migrateStringValue(SharedPreferences prefs, String prefKey, String defValue, DatabaseHelper dbHelper, String dbKey) {
+        String value = dbHelper.getValue(dbKey);
+        if (!TextUtils.isEmpty(value)) {
+            return;
+        }
+        String oldValue = prefs.getString(prefKey, defValue);
+        if (!TextUtils.isEmpty(oldValue)) {
+            dbHelper.insertOrReplaceKeyValue(dbKey, oldValue);
+            prefs.edit().remove(prefKey).apply();
+        }
+    }
+
+    private static void migrateBooleanValue(SharedPreferences prefs, String prefKey, boolean defValue, DatabaseHelper dbHelper, String dbKey) {
+        Long value = dbHelper.getLongValue(dbKey);
+        if (value != null) {
+            return;
+        }
+        boolean oldValue = prefs.getBoolean(prefKey, defValue);
+        dbHelper.insertOrReplaceKeyLongValue(dbKey, oldValue ? 1L : 0L);
+        prefs.edit().remove(prefKey).apply();
     }
 
     protected long getCurrentTimeMillis() { return System.currentTimeMillis(); }
