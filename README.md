@@ -10,22 +10,22 @@ A [demo application](https://github.com/amplitude/Android-Demo) is available to 
 # Setup #
 1. If you haven't already, go to https://amplitude.com/signup and register for an account. Then, add an app. You will receive an API Key.
 
-2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.2.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
+2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.4.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
 
-  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.2.0%7Cjar) using the following configuration in your pom.xml:
+  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.4.0%7Cjar) using the following configuration in your pom.xml:
 
     ```
     <dependency>
       <groupId>com.amplitude</groupId>
       <artifactId>android-sdk</artifactId>
-      <version>2.2.0</version>
+      <version>2.4.0</version>
     </dependency>
     ```
 
   Or if you are using gradle in your project, include in your build.gradle file:
 
     ```
-    compile 'com.amplitude:android-sdk:2.2.0'
+    compile 'com.amplitude:android-sdk:2.4.0'
     ```
 
 4.  In every file that uses analytics, import com.amplitude.api.Amplitude at the top:
@@ -65,19 +65,19 @@ It's important to think about what types of events you care about as a developer
 
 A session is a period of time that a user has the app in the foreground. Events that are logged within the same session will have the same `session_id`. Sessions are handled automatically now; you no longer have to manually call `startSession()` or `endSession()`.
 
-* For Android API level 14+, a new session is created when the app comes back into the foreground after being out of the foreground for 5 minutes or more. (Note you can define your own session experiation time by calling `setMinTimeBetweenSessionsMillis(timeout)`, where the timeout input is in milliseconds.)
+* For Android API level 14+, a new session is created when the app comes back into the foreground after being out of the foreground for 5 minutes or more. If the app is in the background and an event is logged, then a new session is created if more than 5 minutes has passed since the app entered the background or when the last event was logged (whichever occurred last). Otherwise the background event logged will be part of the current session. (Note you can define your own session experation time by calling `setMinTimeBetweenSessionsMillis(timeout)`, where the timeout input is in milliseconds.)
 
 * For Android API level 13 and below, foreground tracking is not available, so a new session is automatically started when an event is logged 30 minutes or more after the last logged event. If another event is logged within 30 minutes, it will extend the current session. (Note you can define your own session expiration time by calling `setSessionTimeoutMillis(timeout)`, where the timeout input is in milliseconds. Also note, `enableForegroundTracking(getApplication)` is still safe to call for Android API level 13 and below, even though it is not available.)
 
 Other Session Options:
 
-1.  By default start and end session events are no longer sent. To renable add this line after initializing the SDK:
+1.  By default start and end session events are no longer sent. To re-enable add this line after initializing the SDK:
 
     ```java
     Amplitude.getInstance().trackSessionEvents(true);
     ```
 
-2. You can also log events as out of session. Out of session events have a `session_id` of `-1` and are not considered part of the current session, meaning they do not extend the current session (useful for things like push notifications). You can log events as out of session by setting input parameter `outOfSession` to `true` when calling `logEvent()`:
+2. You can also log events as out of session. Out of session events have a `session_id` of `-1` and are not considered part of the current session, meaning they do not extend the current session. This might be useful for example if you are logging events triggered by push notifications. You can log events as out of session by setting input parameter `outOfSession` to `true` when calling `logEvent()`:
 
     ```java
     Amplitude.getInstance().logEvent("EVENT", null, true);
@@ -91,7 +91,11 @@ If your app has its own login system that you want to track users with, you can 
 Amplitude.getInstance().setUserId("USER_ID_HERE");
 ```
 
-A user's data will be merged on the backend so that any events up to that point on the same device will be tracked under the same user.
+A user's data will be merged on the backend so that any events up to that point on the same device will be tracked under the same user. Note: if a user logs out, or you want to log events under an anonymous user, you can also clear the user ID by calling `setUserId` with input `null`:
+
+```java
+Amplitude.getInstance().setUserId(null); // not string "null"
+```
 
 You can also add a user ID as an argument to the `initialize()` call:
 
@@ -119,22 +123,14 @@ import org.json.JSONException;
 import org.json.JSONObject;
 ```
 
-# Setting User Properties #
-
-To add properties that are associated with a user, you can set user properties:
-
-```java
-JSONObject userProperties = new JSONObject();
-try {
-    userProperties.put("KEY_GOES_HERE", "VALUE_GOES_HERE");
-} catch (JSONException exception) {
-}
-Amplitude.getInstance().setUserProperties(userProperties);
-```
-
-# User Property Operations #
+# User Properties and User Property Operations #
 
 The SDK supports the operations set, setOnce, unset, and add on individual user properties. The operations are declared via a provided `Identify` interface. Multiple operations can be chained together in a single `Identify` object. The `Identify` object is then passed to the Amplitude client to send to the server. The results of the operations will be visible immediately in the dashboard, and take effect for events logged after.
+
+To use the `Identify` interface, you will first need to import the class:
+```java
+import com.amplitude.api.Identify;
+```
 
 1. `set`: this sets the value of a user property.
 
@@ -167,11 +163,43 @@ The SDK supports the operations set, setOnce, unset, and add on individual user 
     Amplitude.getInstance().identify(identify);
     ```
 
+5. `append`: this will append a value or values to a user property. If the user property does not have a value set yet, it will be initialized to an empty list before the new values are appended. If the user property has an existing value and it is not a list, it will be converted into a list with the new value appended.
+
+    ```java
+    Identify identify = new Identify().append("ab-tests", "new-user-test").append("some_list", new JSONArray().put(1).put("some_string"));
+    Amplitude.getInstance().identify(identify);
+    ```
+
 Note: if a user property is used in multiple operations on the same `Identify` object, only the first operation will be saved, and the rest will be ignored. In this example, only the set operation will be saved, and the add and unset will be ignored:
 
 ```java
 Identify identify = new Identify().set('karma', 10).add('karma', 1).unset('karma');
 Amplitude.getInstance().identify(identify);
+```
+
+### Arrays in User Properties ###
+
+The SDK supports arrays in user properties. Any of the user property operations above (with the exception of `add`) can accept a JSONArray or any Java primitive array. You can directly `set` arrays, or use `append` to generate an array.
+
+```java
+JSONArray colors = new JSONArray();
+colors.put("rose").put("gold");
+Identify identify = new Identify().set("colors", colors).append("ab-tests", "campaign_a").append("existing_list", new int[]{4,5});
+Amplitude.getInstance().identify(identify);
+```
+
+### Setting Multiple Properties with `setUserProperties` ###
+
+You may use `setUserProperties` shorthand to set multiple user properties at once. This method is simply a wrapper around `Identify.set` and `identify`.
+
+```java
+JSONObject userProperties = new JSONObject();
+try {
+    userProperties.put("KEY_GOES_HERE", "VALUE_GOES_HERE");
+    userProperties.put("OTHER_KEY_GOES_HERE", "OTHER_VALUE_GOES_HERE");
+} catch (JSONException exception) {
+}
+Amplitude.getInstance().setUserProperties(userProperties);
 ```
 
 # Tracking Revenue #

@@ -386,6 +386,7 @@ public class AmplitudeClient {
                 apiProperties.put("androidADID", deviceInfo.getAdvertisingId());
             }
             apiProperties.put("limit_ad_tracking", deviceInfo.isLimitAdTrackingEnabled());
+            apiProperties.put("gps_enabled", deviceInfo.isGooglePlayServicesEnabled());
 
             event.put("api_properties", apiProperties);
             event.put("event_properties", (eventProperties == null) ? new JSONObject()
@@ -661,7 +662,7 @@ public class AmplitudeClient {
                 while (keys.hasNext()) {
                     String key = (String) keys.next();
                     try {
-                        identify.set(key, copy.get(key));
+                        identify.setUserProperty(key, copy.get(key));
                     } catch (JSONException e) {
                         logger.e(TAG, e.toString());
                     }
