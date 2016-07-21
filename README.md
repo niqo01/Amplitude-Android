@@ -10,22 +10,22 @@ A [demo application](https://github.com/amplitude/Android-Demo) is available to 
 # Setup #
 1. If you haven't already, go to https://amplitude.com/signup and register for an account. Then, add an app. You will receive an API Key.
 
-2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.2.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
+2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.3.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
 
-  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.2.0%7Cjar) using the following configuration in your pom.xml:
+  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.3.0%7Cjar) using the following configuration in your pom.xml:
 
     ```
     <dependency>
       <groupId>com.amplitude</groupId>
       <artifactId>android-sdk</artifactId>
-      <version>2.2.0</version>
+      <version>2.3.0</version>
     </dependency>
     ```
 
   Or if you are using gradle in your project, include in your build.gradle file:
 
     ```
-    compile 'com.amplitude:android-sdk:2.2.0'
+    compile 'com.amplitude:android-sdk:2.3.0'
     ```
 
 4.  In every file that uses analytics, import com.amplitude.api.Amplitude at the top:
@@ -91,6 +91,8 @@ If your app has its own login system that you want to track users with, you can 
 Amplitude.getInstance().setUserId("USER_ID_HERE");
 ```
 
+You can also clear the user ID by calling `setUserId` with input `null`. Events without a user ID are anonymous.
+
 A user's data will be merged on the backend so that any events up to that point on the same device will be tracked under the same user.
 
 You can also add a user ID as an argument to the `initialize()` call:
@@ -135,6 +137,12 @@ Amplitude.getInstance().setUserProperties(userProperties);
 # User Property Operations #
 
 The SDK supports the operations set, setOnce, unset, and add on individual user properties. The operations are declared via a provided `Identify` interface. Multiple operations can be chained together in a single `Identify` object. The `Identify` object is then passed to the Amplitude client to send to the server. The results of the operations will be visible immediately in the dashboard, and take effect for events logged after.
+
+First you need to import the Identify class by adding this import statement at the top:
+
+```java
+import com.amplitude.api.Identify;
+```
 
 1. `set`: this sets the value of a user property.
 
