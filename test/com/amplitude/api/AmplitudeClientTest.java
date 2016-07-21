@@ -3,9 +3,6 @@ package com.amplitude.api;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-import com.squareup.okhttp.mockwebserver.MockResponse;
-import com.squareup.okhttp.mockwebserver.RecordedRequest;
-
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -23,6 +20,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.RecordedRequest;
+
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -33,7 +33,7 @@ import static org.junit.Assert.fail;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
-public class AmplitudeTest extends BaseTest {
+public class AmplitudeClientTest extends BaseTest {
 
     private String generateStringWithLength(int length, char c) {
         if (length < 0) return "";
@@ -45,6 +45,7 @@ public class AmplitudeTest extends BaseTest {
     @Before
     public void setUp() throws Exception {
         super.setUp();
+        amplitude.initialize(context, apiKey);
     }
 
     @After
@@ -54,25 +55,16 @@ public class AmplitudeTest extends BaseTest {
 
     @Test
     public void testSetUserId() {
-        String sharedPreferences = Constants.SHARED_PREFERENCES_NAME_PREFIX + "."
-                + context.getPackageName();
-        assertEquals(sharedPreferences, "com.amplitude.api.com.amplitude.test");
+        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
         String userId = "user_id";
         amplitude.setUserId(userId);
-        assertEquals(
-                userId,
-                context.getSharedPreferences(sharedPreferences, Context.MODE_PRIVATE).getString(
-                        Constants.PREFKEY_USER_ID, null));
+        assertEquals(userId, dbHelper.getValue(AmplitudeClient.USER_ID_KEY));
         assertEquals(userId, amplitude.getUserId());
 
         // try setting to null
-       amplitude.setUserId(null);
-        assertEquals(
-                null,
-                context.getSharedPreferences(sharedPreferences, Context.MODE_PRIVATE).getString(
-                        Constants.PREFKEY_USER_ID, null));
+        amplitude.setUserId(null);
+        assertNull(dbHelper.getValue(AmplitudeClient.USER_ID_KEY));
         assertNull(amplitude.getUserId());
-
     }
 
     @Test
@@ -249,9 +241,10 @@ public class AmplitudeTest extends BaseTest {
         looper.getScheduler().advanceToLastPostedRunnable();
         String deviceId = amplitude.getDeviceId();
         assertTrue(deviceId.endsWith("R"));
+        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
         assertEquals(
                 deviceId,
-                DatabaseHelper.getDatabaseHelper(context).getValue(AmplitudeClient.DEVICE_ID_KEY)
+                dbHelper.getValue(AmplitudeClient.DEVICE_ID_KEY)
         );
     }
 
@@ -264,11 +257,11 @@ public class AmplitudeTest extends BaseTest {
         assertEquals(37, amplitude.getDeviceId().length());
         String deviceId = amplitude.getDeviceId();
         assertTrue(deviceId.endsWith("R"));
+        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
         assertEquals(
                 deviceId,
-                DatabaseHelper.getDatabaseHelper(context).getValue(AmplitudeClient.DEVICE_ID_KEY)
+                dbHelper.getValue(AmplitudeClient.DEVICE_ID_KEY)
         );
-
     }
 
     @Test
@@ -276,12 +269,20 @@ public class AmplitudeTest extends BaseTest {
         ShadowLooper looper = Shadows.shadowOf(amplitude.logThread.getLooper());
         ShadowLooper httplooper = Shadows.shadowOf(amplitude.httpThread.getLooper());
 
+        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
+        assertFalse(amplitude.isOptedOut());
+        assertEquals((long) dbHelper.getLongValue(AmplitudeClient.OPT_OUT_KEY), 0L);
+
         amplitude.setOptOut(true);
+        assertTrue(amplitude.isOptedOut());
+        assertEquals((long) dbHelper.getLongValue(AmplitudeClient.OPT_OUT_KEY), 1L);
         RecordedRequest request = sendEvent(amplitude, "test_opt_out", null);
         assertNull(request);
 
         // Event shouldn't be sent event once opt out is turned off.
         amplitude.setOptOut(false);
+        assertFalse(amplitude.isOptedOut());
+        assertEquals((long) dbHelper.getLongValue(AmplitudeClient.OPT_OUT_KEY), 0L);
         looper.runToEndOfTasks();
         looper.runToEndOfTasks();
         httplooper.runToEndOfTasks();
@@ -341,6 +342,14 @@ public class AmplitudeTest extends BaseTest {
         JSONObject expected = new JSONObject();
         expected.put("key", "value");
         assertTrue(compareJSONObjects(userProperties.getJSONObject(Constants.AMP_OP_SET), expected));
+
+        // verify db state
+        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
+        assertNull(dbHelper.getValue(AmplitudeClient.USER_ID_KEY));
+        assertEquals((long)dbHelper.getLongValue(AmplitudeClient.LAST_IDENTIFY_ID_KEY), 1L);
+        assertEquals((long)dbHelper.getLongValue(AmplitudeClient.LAST_EVENT_ID_KEY), -1L);
+        assertEquals((long) dbHelper.getLongValue(AmplitudeClient.SEQUENCE_NUMBER_KEY), 1L);
+        assertEquals((long)dbHelper.getLongValue(AmplitudeClient.LAST_EVENT_TIME_KEY), timestamps[0]);
     }
 
     @Test
@@ -383,7 +392,7 @@ public class AmplitudeTest extends BaseTest {
         }
 
         // send response and check that remove events works properly
-        runRequest();
+        runRequest(amplitude);
         looper.runToEndOfTasks();
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 0);
@@ -437,7 +446,7 @@ public class AmplitudeTest extends BaseTest {
         ));
 
         // send response and check that remove events works properly
-        runRequest();
+        runRequest(amplitude);
         looper.runToEndOfTasks();
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 0);
@@ -478,7 +487,7 @@ public class AmplitudeTest extends BaseTest {
         ));
 
         // send response and check that remove events works properly
-        RecordedRequest request = runRequest();
+        RecordedRequest request = runRequest(amplitude);
         JSONArray events = getEventsFromRequest(request);
         assertEquals(events.length(), 2);
         assertEquals(events.optJSONObject(0).optString("event_type"), "test_event");
@@ -518,7 +527,7 @@ public class AmplitudeTest extends BaseTest {
         assertEquals(getUnsentIdentifyCount(), 3);
         assertEquals(amplitude.getLastIdentifyId(), 3);
 
-        RecordedRequest request = runRequest();
+        RecordedRequest request = runRequest(amplitude);
         JSONArray events = getEventsFromRequest(request);
         assertEquals(events.length(), 7);
 
@@ -578,6 +587,14 @@ public class AmplitudeTest extends BaseTest {
         looper.runToEndOfTasks();
         assertEquals(getUnsentEventCount(), 0);
         assertEquals(getUnsentIdentifyCount(), 0);
+
+        // verify db state
+        DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
+        assertNull(dbHelper.getValue(AmplitudeClient.USER_ID_KEY));
+        assertEquals((long) dbHelper.getLongValue(AmplitudeClient.LAST_IDENTIFY_ID_KEY), 3L);
+        assertEquals((long) dbHelper.getLongValue(AmplitudeClient.LAST_EVENT_ID_KEY), 4L);
+        assertEquals((long) dbHelper.getLongValue(AmplitudeClient.SEQUENCE_NUMBER_KEY), 7L);
+        assertEquals((long)dbHelper.getLongValue(AmplitudeClient.LAST_EVENT_TIME_KEY), timestamps[6]);
     }
 
     @Test
@@ -626,7 +643,7 @@ public class AmplitudeTest extends BaseTest {
         expectedIdentify2.put(Constants.AMP_OP_ADD, new JSONObject().put("photo_count", 2));
 
         // send response and check that merging events correctly ordered events
-        RecordedRequest request = runRequest();
+        RecordedRequest request = runRequest(amplitude);
         JSONArray events = getEventsFromRequest(request);
         assertEquals(events.length(), 4);
         assertEquals(events.optJSONObject(0).optString("event_type"), "test_event1");
@@ -670,7 +687,7 @@ public class AmplitudeTest extends BaseTest {
         assertEquals(getUnsentEventCount(), Constants.EVENT_UPLOAD_THRESHOLD);
         assertEquals(getUnsentIdentifyCount(), 2);
 
-        RecordedRequest request = runRequest();
+        RecordedRequest request = runRequest(amplitude);
         JSONArray events = getEventsFromRequest(request);
         for (int i = 0; i < events.length(); i++) {
             assertEquals(events.optJSONObject(i).optString("event_type"), "test_event" + i);
@@ -746,7 +763,7 @@ public class AmplitudeTest extends BaseTest {
         assertEquals("RECEIPT", apiProps.optString("receipt"));
         assertEquals("SIG", apiProps.optString("receiptSig"));
 
-        assertNotNull(runRequest());
+        assertNotNull(runRequest(amplitude));
     }
 
     @Test
@@ -1039,7 +1056,7 @@ public class AmplitudeTest extends BaseTest {
 
         looper.runToEndOfTasks();
         looper.runToEndOfTasks();
-        RecordedRequest request = runRequest();
+        RecordedRequest request = runRequest(amplitude);
         JSONArray events = getEventsFromRequest(request);
 
         assertEquals(events.optJSONObject(0).optString("event_type"), "test");
@@ -1078,7 +1095,7 @@ public class AmplitudeTest extends BaseTest {
 
         amplitude.setOffline(false);
         looper.runToEndOfTasks();
-        RecordedRequest request = runRequest();
+        RecordedRequest request = runRequest(amplitude);
         JSONArray events = getEventsFromRequest(request);
         looper.runToEndOfTasks();
 
@@ -1184,5 +1201,38 @@ public class AmplitudeTest extends BaseTest {
         assertEquals(
             "-", userPropertiesOperations.optString(Constants.AMP_OP_CLEAR_ALL)
         );
+    }
+
+    @Test
+    public void testMergeEventsArrayIndexOutOfBounds() throws JSONException {
+        ShadowLooper looper = Shadows.shadowOf(amplitude.logThread.getLooper());
+
+        amplitude.setOffline(true);
+
+        amplitude.logEvent("testEvent1");
+        looper.runToEndOfTasks();
+        looper.runToEndOfTasks();
+
+        // force failure case
+        amplitude.setLastEventId(0);
+
+        amplitude.setOffline(false);
+        looper.runToEndOfTasks();
+
+        // make sure next upload succeeds
+        amplitude.setLastEventId(1);
+        amplitude.logEvent("testEvent2");
+        looper.runToEndOfTasks();
+        looper.runToEndOfTasks();
+
+        RecordedRequest request = runRequest(amplitude);
+        JSONArray events = getEventsFromRequest(request);
+        assertEquals(events.length(), 2);
+
+        assertEquals(events.getJSONObject(0).optString("event_type"), "testEvent1");
+        assertEquals(events.getJSONObject(0).optLong("event_id"), 1);
+
+        assertEquals(events.getJSONObject(1).optString("event_type"), "testEvent2");
+        assertEquals(events.getJSONObject(1).optLong("event_id"), 2);
     }
 }
