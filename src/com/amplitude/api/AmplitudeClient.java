@@ -150,7 +150,7 @@ public class AmplitudeClient {
     }
 
     public AmplitudeClient enableForegroundTracking(Application app) {
-        if (usingForegroundTracking) {
+        if (usingForegroundTracking || !contextAndApiKeySet("enableForegroundTracking()")) {
             return instance;
         }
 
@@ -233,6 +233,10 @@ public class AmplitudeClient {
     }
 
     public AmplitudeClient setOptOut(boolean optOut) {
+        if (!contextAndApiKeySet("setOptOut()")) {
+            return instance;
+        }
+
         this.optOut = optOut;
 
         SharedPreferences preferences = context.getSharedPreferences(
@@ -636,12 +640,13 @@ public class AmplitudeClient {
     }
 
     // maintain for backwards compatibility
-    public void setUserProperties(final JSONObject userProperties, final boolean replace){
+    public void setUserProperties(final JSONObject userProperties, final boolean replace) {
         setUserProperties(userProperties);
     }
 
     public void setUserProperties(final JSONObject userProperties) {
-        if (userProperties == null || userProperties.length() == 0) {
+        if (userProperties == null || userProperties.length() == 0 ||
+                !contextAndApiKeySet("setUserProperties")) {
             return;
         }
 
@@ -672,8 +677,14 @@ public class AmplitudeClient {
         });
     }
 
+    public void clearUserProperties() {
+        Identify identify = new Identify().clearAll();
+        identify(identify);
+    }
+
     public void identify(Identify identify) {
-        if (identify == null || identify.userPropertiesOperations.length() == 0) {
+        if (identify == null || identify.userPropertiesOperations.length() == 0
+                || !contextAndApiKeySet("identify()")) {
             return;
         }
         logEventAsync(Constants.IDENTIFY_EVENT, null, null,
@@ -794,7 +805,7 @@ public class AmplitudeClient {
 
     protected void updateServer(Amplitude.UploadCallback callback) {
         callback = callback == null? EMPTY: callback;
-        updateServer(true, callback);
+        updateServer(false, callback);
     }
 
     // Always call this from logThread
@@ -804,17 +815,26 @@ public class AmplitudeClient {
             return;
         }
 
+        // if returning out of this block, always be sure to set uploadingCurrently to false!!
         if (!uploadingCurrently.getAndSet(true)) {
             DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
-            try {
-                int batchLimit = limit ? (backoffUpload ? backoffUploadBatchSize : eventUploadMaxBatchSize) : -1;
+            long totalEventCount = dbHelper.getTotalEventCount();
+            long batchSize = Math.min(
+                limit ? backoffUploadBatchSize : eventUploadMaxBatchSize,
+                totalEventCount
+            );
 
-                List<JSONObject> events = dbHelper.getEvents(getLastEventId(), batchLimit);
-                List<JSONObject> identifys = dbHelper.getIdentifys(getLastIdentifyId(), batchLimit);
-                int numEvents = Math.min(batchLimit, events.size() + identifys.size());
+            if (batchSize <= 0) {
+                uploadingCurrently.set(false);
+                return;
+            }
+
+            try {
+                List<JSONObject> events = dbHelper.getEvents(getLastEventId(), batchSize);
+                List<JSONObject> identifys = dbHelper.getIdentifys(getLastIdentifyId(), batchSize);
 
                 final Pair<Pair<Long, Long>, JSONArray> merged = mergeEventsAndIdentifys(
-                        events, identifys, numEvents);
+                        events, identifys, batchSize);
                 final long maxEventId = merged.first.first;
                 final long maxIdentifyId = merged.first.second;
                 final String mergedEvents = merged.second.toString();
@@ -838,7 +858,7 @@ public class AmplitudeClient {
     }
 
     protected Pair<Pair<Long,Long>, JSONArray> mergeEventsAndIdentifys(List<JSONObject> events,
-                            List<JSONObject> identifys, int numEvents) throws JSONException {
+                            List<JSONObject> identifys, long numEvents) throws JSONException {
         JSONArray merged = new JSONArray();
         long maxEventId = -1;
         long maxIdentifyId = -1;
@@ -925,7 +945,7 @@ public class AmplitudeClient {
                         if (maxEventId >= 0) dbHelper.removeEvents(maxEventId);
                         if (maxIdentifyId >= 0) dbHelper.removeIdentifys(maxIdentifyId);
                         uploadingCurrently.set(false);
-                        if (dbHelper.getEventCount() > eventUploadThreshold) {
+                        if (dbHelper.getTotalEventCount() > eventUploadThreshold) {
                             logThread.post(new Runnable() {
                                 @Override
                                 public void run() {
