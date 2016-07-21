@@ -1,5 +1,14 @@
 ## Unreleased
 
+## 2.7.2 (May 24, 2016)
+
+* Add documentation for SDK functions. You can take a look [here](https://rawgit.com/amplitude/Amplitude-Android/master/javadoc/index.html). A link has also been added to the Readme.
+* Fix bug where fetching the user's location on select devices throws a SecurityException, causing a crash.
+
+## 2.7.1 (April 19, 2016)
+
+* RevenueProperties is a confusing name and should actually be eventProperties. Deprecating Revenue.setRevenueProperties and replacing it with Revenue.setEventProperties, and clarified in Readme.
+
 ## 2.7.0 (April 19, 2016)
 
 * Add support setting groups for users and events. See [Readme](https://github.com/amplitude/Amplitude-Android#setting-groups) for more information.

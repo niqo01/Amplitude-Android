@@ -7,34 +7,42 @@ An Android SDK for tracking events and revenue to [Amplitude](http://www.amplitu
 
 A [demo application](https://github.com/amplitude/Android-Demo) is available to show a simple integration.
 
+See our [SDK documentation](https://rawgit.com/amplitude/Amplitude-Android/master/javadoc/index.html) for a description of all available SDK methods.
+
 # Setup #
 1. If you haven't already, go to https://amplitude.com/signup and register for an account. Then, add an app. You will receive an API Key.
 
-2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.7.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
+2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.7.2-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Android Studio.
 
-  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.7.0%7Cjar) using the following configuration in your pom.xml:
+  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.7.2%7Cjar) using the following configuration in your pom.xml:
 
     ```
     <dependency>
       <groupId>com.amplitude</groupId>
       <artifactId>android-sdk</artifactId>
-      <version>2.7.0</version>
+      <version>2.7.2</version>
     </dependency>
     ```
 
   Or if you are using gradle in your project, include in your build.gradle file:
 
     ```
-    compile 'com.amplitude:android-sdk:2.7.0'
+    compile 'com.amplitude:android-sdk:2.7.2'
     ```
 
-3.  In every file that uses analytics, import com.amplitude.api.Amplitude at the top:
+3. If you haven't already, add the [INTERNET](https://developer.android.com/reference/android/Manifest.permission.html#INTERNET) permission to your manifest file:
+
+    ``` xml
+    <uses-permission android:name="android.permission.INTERNET" />
+    ```
+
+4.  In every file that uses analytics, import com.amplitude.api.Amplitude at the top:
 
     ```java
     import com.amplitude.api.Amplitude;
     ```
 
-4. In the `onCreate()` of your main activity, initialize the SDK:
+5. In the `onCreate()` of your main activity, initialize the SDK:
 
     ```java
     Amplitude.getInstance().initialize(this, "YOUR_API_KEY_HERE").enableForegroundTracking(getApplication());
@@ -42,22 +50,22 @@ A [demo application](https://github.com/amplitude/Android-Demo) is available to 
 
     Note: if your app has multiple entry points/exit points, you should make a `Amplitude.getInstance().initialize()` at every `onCreate()` entry point.
 
-5. To track an event anywhere in the app, call:
+6. To track an event anywhere in the app, call:
 
     ```java
     Amplitude.getInstance().logEvent("EVENT_IDENTIFIER_HERE");
     ```
 
-6. If you want to use Google Advertising IDs, make sure to add [Google Play Services](https://developer.android.com/google/play-services/setup.html) to your project. _This is required for integrating with third party attribution services_
+7. If you want to use Google Advertising IDs, make sure to add [Google Play Services](https://developer.android.com/google/play-services/setup.html) to your project. _This is required for integrating with third party attribution services_
 
-7. If you are using Proguard, add these exceptions to ```proguard.pro``` for Google Play Advertising IDs and Amplitude dependencies:
+8. If you are using Proguard, add these exceptions to ```proguard.pro``` for Google Play Advertising IDs and Amplitude dependencies:
 
     ```yaml
         -keep class com.google.android.gms.ads.** { *; }
         -dontwarn okio.**
     ```
 
-8. Events are saved locally. Uploads are batched to occur every 30 events and every 30 seconds. After calling `logEvent()` in your app, you will immediately see data appear on the Amplitude website.
+9. Events are saved locally. Uploads are batched to occur every 30 events and every 30 seconds. After calling `logEvent()` in your app, you will immediately see data appear on the Amplitude website.
 
 # Tracking Events #
 
@@ -233,7 +241,7 @@ Amplitude.getInstance().clearUserProperties();
 
 # Tracking Revenue #
 
-The preferred method of tracking revenue for a user now is to use `logRevenueV2()` in conjunction with the provided `Revenue` interface. `Revenue` instances will store each revenue transaction and allow you to define several special revenue properties (such as revenueType, productId, etc) that are used in Amplitude dashboard's Revenue tab. You can now also add event properties to the revenue event, via the revenueProperties field. These `Revenue` instance objects are then passed into `logRevenueV2` to send as revenue events to Amplitude servers. This allows us to automatically display data relevant to revenue on the Amplitude website, including average revenue per daily active user (ARPDAU), 1, 7, 14, 30, 60, and 90 day revenue, lifetime value (LTV) estimates, and revenue by advertising campaign cohort and daily/weekly/monthly cohorts.
+The preferred method of tracking revenue for a user now is to use `logRevenueV2()` in conjunction with the provided `Revenue` interface. `Revenue` instances will store each revenue transaction and allow you to define several special revenue properties (such as revenueType, productId, etc) that are used in Amplitude dashboard's Revenue tab. You can now also add event properties to the revenue event, via the eventProperties field. These `Revenue` instance objects are then passed into `logRevenueV2` to send as revenue events to Amplitude servers. This allows us to automatically display data relevant to revenue on the Amplitude website, including average revenue per daily active user (ARPDAU), 1, 7, 14, 30, 60, and 90 day revenue, lifetime value (LTV) estimates, and revenue by advertising campaign cohort and daily/weekly/monthly cohorts.
 
 To use the `Revenue` interface, you will first need to import the class:
 ```java
@@ -256,9 +264,9 @@ Amplitude.getInstance().logRevenueV2(revenue);
 | revenueType        | String     | Optional: the type of revenue (ex: tax, refund, income)                                                  | null    |
 | receipt            | String     | Optional: required if you want to verify the revenue event                                               | null    |
 | receiptSignature   | String     | Optional: required if you want to verify the revenue event                                               | null    |
-| revenueProperties  | JSONObject | Optional: a JSONObject of event properties to include in the revenue event                               | null    |
+| eventProperties    | JSONObject | Optional: a JSONObject of event properties to include in the revenue event                               | null    |
 
-Note: the price can be negative, which might be useful for tracking revenue lost, for example refunds or costs.
+Note: the price can be negative, which might be useful for tracking revenue lost, for example refunds or costs. Also note, you can set event properties on the revenue event just as you would with logEvent by passing in a JSONObject of string key value pairs. These event properties, however, will only appear in the Event Segmentation tab, not in the Revenue tab.
 
 ### Revenue Verification ###
 
@@ -328,7 +336,7 @@ This SDK automatically grabs useful data from the phone, including app version, 
 
 ### Setting Groups ###
 
-Amplitude supports assigning users to groups, and performing queries such as Count by Distinct on those groups. An example would be if you want to group your users based on what organization they are in by using an orgId. You can designate Joe to be in orgId 10, while Sue is in orgId 15. When performing an event segmentation query, you can then select Count by Distinct orgIds to query the number of different orgIds that have performed a specific event. As long as at least one member of that group has performed the specific event, that group will be included in the count. See our help article on [Count By Distinct]() for more information.
+Amplitude supports assigning users to groups, and performing queries such as Count by Distinct on those groups. An example would be if you want to group your users based on what organization they are in by using an orgId. You can designate Joe to be in orgId 10, while Sue is in orgId 15. When performing an event segmentation query, you can then select Count by Distinct orgIds to query the number of different orgIds that have performed a specific event. As long as at least one member of that group has performed the specific event, that group will be included in the count. See our help article on [Count By Distinct](https://amplitude.zendesk.com/hc/en-us/articles/218824237) for more information.
 
 When setting groups you need to define a `groupType` and `groupName`(s). In the above example, 'orgId' is a `groupType`, and the value 10 or 15 is the `groupName`. Another example of a `groupType` could be 'sport' with `groupNames` like 'tennis', 'baseball', etc.
 
