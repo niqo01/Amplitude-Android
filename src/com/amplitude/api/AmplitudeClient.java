@@ -221,43 +221,50 @@ public class AmplitudeClient {
      * @param userId  the user id to set
      * @return the AmplitudeClient
      */
-    public synchronized AmplitudeClient initialize(Context context, String apiKey, String userId, OkHttpClient okHttpClient) {
+    public synchronized AmplitudeClient initialize(final Context context, final String apiKey, final String userId, OkHttpClient okHttpClient) {
         if (context == null) {
             logger.e(TAG, "Argument context cannot be null in initialize()");
             return this;
         }
 
-        AmplitudeClient.upgradePrefs(context);
-        AmplitudeClient.upgradeSharedPrefsToDB(context);
-
         if (TextUtils.isEmpty(apiKey)) {
             logger.e(TAG, "Argument apiKey cannot be null or blank in initialize()");
             return this;
         }
-        if (!initialized) {
-            this.context = context.getApplicationContext();
-            this.httpClient = okHttpClient == null ? new OkHttpClient(): okHttpClient;
-            this.dbHelper = DatabaseHelper.getDatabaseHelper(this.context);
-            this.apiKey = apiKey;
-            initializeDeviceInfo();
 
-            if (userId != null) {
-                this.userId = userId;
-                dbHelper.insertOrReplaceKeyValue(USER_ID_KEY, userId);
-            } else {
-                this.userId = dbHelper.getValue(USER_ID_KEY);
+        this.context = context.getApplicationContext();
+        this.apiKey = apiKey;
+        this.dbHelper = DatabaseHelper.getDatabaseHelper(this.context);
+
+        final AmplitudeClient client = this;
+        runOnLogThread(new Runnable() {
+            @Override
+            public void run() {
+                if (!client.initialized) {
+                    AmplitudeClient.upgradePrefs(context);
+                    AmplitudeClient.upgradeSharedPrefsToDB(context);
+                    client.httpClient  = okHttpClient == null ? new OkHttpClient(): okHttpClient;
+                    client.initializeDeviceInfo();
+
+                    if (userId != null) {
+                        client.userId = userId;
+                        client.dbHelper.insertOrReplaceKeyValue(USER_ID_KEY, userId);
+                    } else {
+                        client.userId = client.dbHelper.getValue(USER_ID_KEY);
+                    }
+                    Long optOut = client.dbHelper.getLongValue(OPT_OUT_KEY);
+                    client.optOut = optOut != null && optOut == 1;
+
+                    // try to restore previous session id
+                    long previousSessionId = client.getPreviousSessionId();
+                    if (previousSessionId >= 0) {
+                        client.sessionId = previousSessionId;
+                    }
+
+                    client.initialized = true;
+                }
             }
-            Long optOut = dbHelper.getLongValue(OPT_OUT_KEY);
-            this.optOut = optOut != null && optOut == 1;
-
-            // try to restore previous session id
-            long previousSessionId = getPreviousSessionId();
-            if (previousSessionId >= 0) {
-                sessionId = previousSessionId;
-            }
-
-            initialized = true;
-        }
+        });
 
         return this;
     }
@@ -1384,13 +1391,19 @@ public class AmplitudeClient {
      * @param userId the user id
      * @return the AmplitudeClient
      */
-    public AmplitudeClient setUserId(String userId) {
+    public AmplitudeClient setUserId(final String userId) {
         if (!contextAndApiKeySet("setUserId()")) {
             return this;
         }
 
-        this.userId = userId;
-        dbHelper.insertOrReplaceKeyValue(USER_ID_KEY, userId);
+        final AmplitudeClient client = this;
+        runOnLogThread(new Runnable() {
+            @Override
+            public void run() {
+                client.userId = userId;
+                dbHelper.insertOrReplaceKeyValue(USER_ID_KEY, userId);
+            }
+        });
         return this;
     }
 
@@ -1409,8 +1422,14 @@ public class AmplitudeClient {
             return this;
         }
 
-        this.deviceId = deviceId;
-        dbHelper.insertOrReplaceKeyValue(DEVICE_ID_KEY, deviceId);
+        final AmplitudeClient client = this;
+        runOnLogThread(new Runnable() {
+            @Override
+            public void run() {
+                client.deviceId = deviceId;
+                dbHelper.insertOrReplaceKeyValue(DEVICE_ID_KEY, deviceId);
+            }
+        });
         return this;
     }
 
@@ -1724,6 +1743,7 @@ public class AmplitudeClient {
         invalidDeviceIds.add("000000000000000"); // Common Serial Number
         invalidDeviceIds.add("Android");
         invalidDeviceIds.add("DEFACE");
+        invalidDeviceIds.add("00000000-0000-0000-0000-000000000000");
 
         return invalidDeviceIds;
     }
@@ -1755,7 +1775,7 @@ public class AmplitudeClient {
         return randomId;
     }
 
-    private void runOnLogThread(Runnable r) {
+    protected void runOnLogThread(Runnable r) {
         if (Thread.currentThread() != logThread) {
             logThread.post(r);
         } else {
