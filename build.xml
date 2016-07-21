@@ -20,7 +20,7 @@
 
     <property name="groupId" value="com.amplitude" />
     <property name="artifactId" value="amplitude-android" />
-    <property name="version" value="2.7.0" />
+    <property name="version" value="2.7.2" />
 
     <property name="jar" value="${dist}/lib/${artifactId}-${version}.jar" />
     <property name="uberjar" value="${dist}/lib/${artifactId}-${version}-with-dependencies.jar" />
@@ -81,6 +81,21 @@
                source="1.7">
             <classpath refid="dependency.classpath" />
         </javac>
+    </target>
+
+    <target name="docs" >
+        <javadoc classpathref="project.classpath" destdir="javadoc">
+            <fileset dir="${src}" defaultexcludes="yes">
+                <exclude name="com/amplitude/security/**"/>
+                <exclude name="com/amplitude/unity/**"/>
+                <exclude name="com/amplitude/api/AmplitudeLog.java"/>
+                <exclude name="com/amplitude/api/Constants.java"/>
+                <exclude name="com/amplitude/api/DeviceInfo.java"/>
+                <exclude name="**SSLContextBuilder**"/>
+                <exclude name="com/amplitude/api/Utils.java"/>
+                <exclude name="com/amplitude/api/WorkerThread.java"/>
+            </fileset>
+        </javadoc>
     </target>
 
     <target name="jar" depends="build">
