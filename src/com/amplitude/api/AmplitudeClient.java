@@ -222,7 +222,7 @@ public class AmplitudeClient {
      * @param userId  the user id to set
      * @return the AmplitudeClient
      */
-    public synchronized AmplitudeClient initialize(final Context context, final String apiKey, final String userId, OkHttpClient okHttpClient) {
+    public synchronized AmplitudeClient initialize(final Context context, final String apiKey, final String userId, final OkHttpClient okHttpClient) {
         if (context == null) {
             logger.e(TAG, "Argument context cannot be null in initialize()");
             return this;
@@ -1125,7 +1125,7 @@ public class AmplitudeClient {
                 refreshSessionTime(timestamp);
                 inForeground = false;
                 if (flushEventsOnClose) {
-                    updateServer();
+                    updateServer(null);
                 }
             }
         });
@@ -1506,9 +1506,9 @@ public class AmplitudeClient {
     /**
      * Internal method to upload unsent events.
      */
-    protected void updateServer(Amplitude.UploadCallback callback)) {
+    protected void updateServer(Amplitude.UploadCallback callback) {
         callback = callback == null? EMPTY: callback;
-        updateServer(false);
+        updateServer(false, callback);
     }
 
     /**

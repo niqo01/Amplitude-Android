@@ -191,8 +191,8 @@ public class PinnedAmplitudeClient extends AmplitudeClient {
     protected boolean initializedSSLSocketFactory = false;
 
     @Override
-    public synchronized AmplitudeClient initialize(Context context, String apiKey, String userId){
-        super.initialize(context, apiKey, userId);
+    public synchronized AmplitudeClient initialize(Context context, String apiKey, String userId, OkHttpClient okClient){
+        super.initialize(context, apiKey, userId, okClient);
         final PinnedAmplitudeClient client = this;
         runOnLogThread(new Runnable() {
             @Override
