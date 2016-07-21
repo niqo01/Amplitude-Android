@@ -20,7 +20,7 @@
 
     <property name="groupId" value="com.amplitude" />
     <property name="artifactId" value="amplitude-android" />
-    <property name="version" value="2.6.0" />
+    <property name="version" value="2.7.0" />
 
     <property name="jar" value="${dist}/lib/${artifactId}-${version}.jar" />
     <property name="uberjar" value="${dist}/lib/${artifactId}-${version}-with-dependencies.jar" />
@@ -77,8 +77,8 @@
                destdir="${build}"
                includeantruntime="false"
                debug="true"
-               source="1.7"
-               target="1.7">
+               target="1.7"
+               source="1.7">
             <classpath refid="dependency.classpath" />
         </javac>
     </target>
@@ -198,7 +198,9 @@
                destdir="${build}"
                classpathref="test.classpath"
                includeantruntime="false"
-               debug="true">
+               debug="true"
+               target="1.7"
+               source="1.7">
             <classpath refid="dependency.testclasspath" />
         </javac>
     </target>

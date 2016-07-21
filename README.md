@@ -10,22 +10,22 @@ A [demo application](https://github.com/amplitude/Android-Demo) is available to 
 # Setup #
 1. If you haven't already, go to https://amplitude.com/signup and register for an account. Then, add an app. You will receive an API Key.
 
-2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.6.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
+2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.7.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Eclipse. If you're using an older build of Android, you may need to [add the jar file to your build path](http://stackoverflow.com/questions/3280353/how-to-import-a-jar-in-eclipse).
 
-  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.6.0%7Cjar) using the following configuration in your pom.xml:
+  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.7.0%7Cjar) using the following configuration in your pom.xml:
 
     ```
     <dependency>
       <groupId>com.amplitude</groupId>
       <artifactId>android-sdk</artifactId>
-      <version>2.6.0</version>
+      <version>2.7.0</version>
     </dependency>
     ```
 
   Or if you are using gradle in your project, include in your build.gradle file:
 
     ```
-    compile 'com.amplitude:android-sdk:2.6.0'
+    compile 'com.amplitude:android-sdk:2.7.0'
     ```
 
 3.  In every file that uses analytics, import com.amplitude.api.Amplitude at the top:
@@ -96,18 +96,19 @@ Other Session Options:
     Amplitude.getInstance().logEvent("EVENT", null, true);
     ```
 
+### Getting the Session Id ###
+
+You can use the helper method `getSessionId` to get the value of the current sessionId:
+```java
+long sessionId = Amplitude.getInstance().getSessionId();
+```
+
 # Setting Custom User IDs #
 
 If your app has its own login system that you want to track users with, you can call `setUserId()` at any time:
 
 ```java
 Amplitude.getInstance().setUserId("USER_ID_HERE");
-```
-
-A user's data will be merged on the backend so that any events up to that point on the same device will be tracked under the same user. Note: if a user logs out, or you want to log events under an anonymous user, you can also clear the user ID by calling `setUserId` with input `null`:
-
-```java
-Amplitude.getInstance().setUserId(null); // not string "null"
 ```
 
 You can also add a user ID as an argument to the `initialize()` call:
@@ -232,25 +233,48 @@ Amplitude.getInstance().clearUserProperties();
 
 # Tracking Revenue #
 
-To track revenue from a user, call `logRevenue()` each time a user generates revenue. For example:
+The preferred method of tracking revenue for a user now is to use `logRevenueV2()` in conjunction with the provided `Revenue` interface. `Revenue` instances will store each revenue transaction and allow you to define several special revenue properties (such as revenueType, productId, etc) that are used in Amplitude dashboard's Revenue tab. You can now also add event properties to the revenue event, via the revenueProperties field. These `Revenue` instance objects are then passed into `logRevenueV2` to send as revenue events to Amplitude servers. This allows us to automatically display data relevant to revenue on the Amplitude website, including average revenue per daily active user (ARPDAU), 1, 7, 14, 30, 60, and 90 day revenue, lifetime value (LTV) estimates, and revenue by advertising campaign cohort and daily/weekly/monthly cohorts.
 
+To use the `Revenue` interface, you will first need to import the class:
 ```java
-Amplitude.getInstance().logRevenue("com.company.productid", 1, 3.99);
+import com.amplitude.api.Revenue;
 ```
 
-`logRevenue()` takes a takes a string to identify the product (the product ID from Google Play), an int with the quantity of product purchased, and a double with the dollar amount of the sale. This allows us to automatically display data relevant to revenue on the Amplitude website, including average revenue per daily active user (ARPDAU), 1, 7, 14, 30, 60, and 90 day revenue, lifetime value (LTV) estimates, and revenue by advertising campaign cohort and daily/weekly/monthly cohorts.
+Each time a user generates revenue, you create a `Revenue` object and fill out the revenue properties:
+```java
+Revenue revenue = new Revenue().setProductId("com.company.productId").setPrice(3.99).setQuantity(3);
+Amplitude.getInstance().logRevenueV2(revenue);
+```
 
-**To enable revenue verification, copy your Google Play License Public Key into the manage section of your app on Amplitude. You must put a key for every single app in Amplitude where you want revenue verification.**
+`productId`, and `price` are required fields. `quantity` defaults to 1 if unspecified. `receipt` and `receiptSignature` are required if you want to verify the revenue event. Each field has a corresponding `set` method (for example `setProductId`, `setQuantity`, etc). This table describes the different fields available:
 
-Then after a successful purchase transaction, call `logRevenue()` with the purchase data and receipt signature:
+| Name               | Type       | Description                                                                                              | default |
+|--------------------|------------|----------------------------------------------------------------------------------------------------------|---------|
+| productId          | String     | Required: an identifier for the product (we recommend something like the Google Play Store product Id)   | null    |
+| quantity           | int        | Required: the quantity of products purchased. Defaults to 1 if not specified. Revenue = quantity * price | 1       |
+| price              | Double     | Required: the price of the products purchased (can be negative). Revenue = quantity * price              | null    |
+| revenueType        | String     | Optional: the type of revenue (ex: tax, refund, income)                                                  | null    |
+| receipt            | String     | Optional: required if you want to verify the revenue event                                               | null    |
+| receiptSignature   | String     | Optional: required if you want to verify the revenue event                                               | null    |
+| revenueProperties  | JSONObject | Optional: a JSONObject of event properties to include in the revenue event                               | null    |
+
+Note: the price can be negative, which might be useful for tracking revenue lost, for example refunds or costs.
+
+### Revenue Verification ###
+
+By default Revenue events recorded on the Android SDK appear in Amplitude dashboards as unverified revenue events. **To enable revenue verification, copy your Google Play License Public Key into the manage section of your app on Amplitude. You must put a key for every single app in Amplitude where you want revenue verification.**
+
+Then after a successful purchase transaction, add the purchase data and receipt signature to the `Revenue` object:
 
 ```java
-
 // for a purchase request onActivityResult
 String purchaseData = data.getStringExtra("INAPP_PURCHASE_DATA");
 String dataSignature = data.getStringExtra("INAPP_DATA_SIGNATURE");
 
-Amplitude.getInstance().logRevenue("com.company.productid", 1, 3.99, purchaseData, dataSignature);
+Revenue revenue = new Revenue().setProductId("com.company.productId").setQuantity(1);
+revenue.setPrice(3.99).setReceipt(purchaseData, dataSignature);
+
+Amplitude.getInstance().logRevenueV2(revenue);
 ```
 
 See the [Google In App Billing Documentation](http://developer.android.com/google/play/billing/billing_integrate.html#Purchase) for details on how to retrieve the purchase data and receipt signature.
@@ -260,11 +284,20 @@ See the [Google In App Billing Documentation](http://developer.android.com/googl
 For purchases on the Amazon Store, you should copy your Amazon Shared Secret into the manage section of your app on Amplitude. After a successful purchase transaction, you should send the purchase token as the receipt and the user id as the receiptSignature:
 
 ```java
+// for a purchase request onActivityResult
 String purchaseToken = purchaseResponse.getReceipt();
 String userId = getUserIdResponse.getUserId();
 
-Amplitude.getInstance().logRevenue("com.company.productid", 1, 3.99, purchaseToken, userId);
+Revenue revenue = new Revenue().setProductId("com.company.productId").setQuantity(1);
+revenue.setPrice(3.99).setReceipt(purchaseToken, userId);
+
+Amplitude.getInstance().logRevenueV2(revenue);
 ```
+
+### Backwards compatibility ###
+
+The existing `logRevenue` methods still work but are deprecated. Fields such as `revenueType` will be missing from events logged with the old methods, so Revenue segmentation on those events will be limited in Amplitude dashboards.
+
 
 # Fine-grained location tracking #
 
@@ -292,6 +325,30 @@ No events will be logged during any period opt out is enabled.
 If you want to use the source files directly, you can [download them here](https://github.com/amplitude/Amplitude-Android/archive/master.zip). To include them in your project, extract the files, and then copy the five *.java files into your Android project.
 
 This SDK automatically grabs useful data from the phone, including app version, phone model, operating system version, and carrier information. If your app has location permissions, the SDK will also grab the last known location of a user (this will not consume any extra battery, as it does not poll for a new location).
+
+### Setting Groups ###
+
+Amplitude supports assigning users to groups, and performing queries such as Count by Distinct on those groups. An example would be if you want to group your users based on what organization they are in by using an orgId. You can designate Joe to be in orgId 10, while Sue is in orgId 15. When performing an event segmentation query, you can then select Count by Distinct orgIds to query the number of different orgIds that have performed a specific event. As long as at least one member of that group has performed the specific event, that group will be included in the count. See our help article on [Count By Distinct]() for more information.
+
+When setting groups you need to define a `groupType` and `groupName`(s). In the above example, 'orgId' is a `groupType`, and the value 10 or 15 is the `groupName`. Another example of a `groupType` could be 'sport' with `groupNames` like 'tennis', 'baseball', etc.
+
+You can use `setGroup(groupType, groupName)` to designate which groups a user belongs to. Note: this will also set the `groupType`: `groupName` as a user property. **This will overwrite any existing groupName value set for that user's groupType, as well as the corresponding user property value.** `groupType` is a string, and `groupName` can be either a string or an *JSONArray* of strings to indicate a user being in multiple groups (for example Joe is in orgId 10 and 16, so the `groupName` would be [10, 16]). It is important that you use JSONArrays to set multiple groups since primitive arrays do not serialize properly.
+
+You can also call `setGroup` multiple times with different groupTypes to track multiple types of groups. **You are allowed to track up to 5 different groupTypes per app.** For example Sue is in orgId: 15, and she also plays sport: soccer. Now when querying, you can Count by Distinct on both orgId and sport (although as separate queries). Any additional groupTypes after the limit will be ignored from the Count By Distinct query UI, although they will still be saved as user properties.
+
+```java
+Amplitude.getInstance().setGroup("orgId", "15");
+Amplitude.getInstance().setGroup("sport", new JSONArray().put("tennis").put("soccer"));  // list values
+```
+
+You can also use `logEvent` with the groups argument to set event-level groups, meaning the group designation only applies for the specific event being logged and does not persist on the user (unless you explicitly set it with `setGroup`).
+
+```java
+JSONObject eventProperties = new JSONObject().put("key", "value");
+JSONObject groups = new JSONObject().put("orgId", 10);
+
+Amplitude.getInstance().logEvent("initialize_game", eventProperties, groups);
+```
 
 ### Custom Device Ids ###
 By default, device IDs are a randomly generated UUID. If you would like to use Google's Advertising ID as the device ID, you can specify this by calling `Amplitude.getInstance().useAdvertisingIdForDeviceId()` prior to initializing. You can retrieve the Device ID that Amplitude uses with `Amplitude.getDeviceId()`. This method can return null if a Device ID hasn't been generated yet.
