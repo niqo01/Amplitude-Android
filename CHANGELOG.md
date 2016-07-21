@@ -1,5 +1,20 @@
 ## Unreleased
 
+## 2.9.2 (July 14, 2016)
+
+* Fix bug where `enableLocationListening` and `disableLocationListening` were not being run on background thread. Thanks to @elevenfive for PR.
+* Update `Revenue` class to expose public `equals` and `hashCode` methods.
+
+## 2.9.1 (July 11, 2016)
+
+* Fix bug where `setOptOut` was not being run on background thread.
+* `productId` is no longer a required field for `Revenue` logged via `logRevenueV2`.
+* Fix bug where receipt and receiptSignature were being truncated if they were too long (exceeded 1024 characters).
+
+## 2.9.0 (July 07, 2016)
+
+* Add automatic flushing of unsent events on app close/minimize (through the Activity Lifecycle `onPause` callback). This only works if you call `Amplitude.getInstance().enableForegroundTracking(getApplication());`, which is recommended in the README by default for Setup. To disable you can call `Amplitude.getInstance().setFlushEventsOnClose(false);`
+
 ## 2.8.0 (June 29, 2016)
 
 * Run the `initialize` logic on the background thread so that the SQLite database operations do not delay the main thread.

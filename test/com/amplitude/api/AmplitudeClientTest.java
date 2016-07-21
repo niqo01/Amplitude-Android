@@ -194,7 +194,7 @@ public class AmplitudeClientTest extends BaseTest {
         assertTrue(userPropertiesOperations.has(Constants.AMP_OP_SET));
 
         JSONObject setOperations = userPropertiesOperations.optJSONObject(Constants.AMP_OP_SET);
-        assertTrue(compareJSONObjects(userProperties, setOperations));
+        assertTrue(Utils.compareJSONObjects(userProperties, setOperations));
     }
 
     @Test
@@ -229,7 +229,7 @@ public class AmplitudeClientTest extends BaseTest {
         expected.put(Constants.AMP_OP_ADD, new JSONObject().put(property2, value2));
         expected.put(Constants.AMP_OP_SET, new JSONObject().put(property3, value3));
         expected.put(Constants.AMP_OP_UNSET, new JSONObject().put(property4, "-"));
-        assertTrue(compareJSONObjects(userProperties, expected));
+        assertTrue(Utils.compareJSONObjects(userProperties, expected));
     }
 
     @Test
@@ -292,6 +292,7 @@ public class AmplitudeClientTest extends BaseTest {
         assertEquals((long) dbHelper.getLongValue(AmplitudeClient.OPT_OUT_KEY), 0L);
 
         amplitude.setOptOut(true);
+        looper.runToEndOfTasks();
         assertTrue(amplitude.isOptedOut());
         assertEquals((long) dbHelper.getLongValue(AmplitudeClient.OPT_OUT_KEY), 1L);
         RecordedRequest request = sendEvent(amplitude, "test_opt_out", null);
@@ -299,6 +300,7 @@ public class AmplitudeClientTest extends BaseTest {
 
         // Event shouldn't be sent event once opt out is turned off.
         amplitude.setOptOut(false);
+        looper.runToEndOfTasks();
         assertFalse(amplitude.isOptedOut());
         assertEquals((long) dbHelper.getLongValue(AmplitudeClient.OPT_OUT_KEY), 0L);
         looper.runToEndOfTasks();
@@ -359,7 +361,7 @@ public class AmplitudeClientTest extends BaseTest {
 
         JSONObject expected = new JSONObject();
         expected.put("key", "value");
-        assertTrue(compareJSONObjects(userProperties.getJSONObject(Constants.AMP_OP_SET), expected));
+        assertTrue(Utils.compareJSONObjects(userProperties.getJSONObject(Constants.AMP_OP_SET), expected));
 
         // verify db state
         DatabaseHelper dbHelper = DatabaseHelper.getDatabaseHelper(context);
@@ -447,19 +449,19 @@ public class AmplitudeClientTest extends BaseTest {
         assertEquals(events.optJSONObject(0).optString("event_type"), Constants.IDENTIFY_EVENT);
         assertEquals(events.optJSONObject(0).optLong("timestamp"), timestamps[0]);
         assertEquals(events.optJSONObject(0).optLong("sequence_number"), 1);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.optJSONObject(0).optJSONObject("user_properties"), expectedIdentify1
         ));
         assertEquals(events.optJSONObject(1).optString("event_type"), Constants.IDENTIFY_EVENT);
         assertEquals(events.optJSONObject(1).optLong("timestamp"), timestamps[1]);
         assertEquals(events.optJSONObject(1).optLong("sequence_number"), 2);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.optJSONObject(1).optJSONObject("user_properties"), expectedIdentify2
         ));
         assertEquals(events.optJSONObject(2).optString("event_type"), Constants.IDENTIFY_EVENT);
         assertEquals(events.optJSONObject(2).optLong("timestamp"), timestamps[2]);
         assertEquals(events.optJSONObject(2).optLong("sequence_number"), 3);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.optJSONObject(2).optJSONObject("user_properties"), expectedIdentify3
         ));
 
@@ -500,7 +502,7 @@ public class AmplitudeClientTest extends BaseTest {
         JSONArray unsentIdentifys = getUnsentIdentifys(1);
         assertEquals(unsentIdentifys.optJSONObject(0).optString("event_type"), Constants.IDENTIFY_EVENT);
         assertEquals(unsentIdentifys.optJSONObject(0).optLong("sequence_number"), 2);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 unsentIdentifys.optJSONObject(0).optJSONObject("user_properties"), expectedIdentify
         ));
 
@@ -510,7 +512,7 @@ public class AmplitudeClientTest extends BaseTest {
         assertEquals(events.length(), 2);
         assertEquals(events.optJSONObject(0).optString("event_type"), "test_event");
         assertEquals(events.optJSONObject(1).optString("event_type"), Constants.IDENTIFY_EVENT);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.optJSONObject(1).optJSONObject("user_properties"), expectedIdentify
         ));
         looper.runToEndOfTasks();
@@ -565,7 +567,7 @@ public class AmplitudeClientTest extends BaseTest {
         assertEquals(events.getJSONObject(1).getLong("event_id"), 1);
         assertEquals(events.getJSONObject(1).getLong("timestamp"), timestamps[1]);
         assertEquals(events.getJSONObject(1).getLong("sequence_number"), 2);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.getJSONObject(1).getJSONObject("user_properties"), expectedIdentify1
         ));
 
@@ -589,7 +591,7 @@ public class AmplitudeClientTest extends BaseTest {
         assertEquals(events.getJSONObject(5).getLong("event_id"), 2);
         assertEquals(events.getJSONObject(5).getLong("timestamp"), timestamps[5]);
         assertEquals(events.getJSONObject(5).getLong("sequence_number"), 6);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.getJSONObject(5).getJSONObject("user_properties"), expectedIdentify2
         ));
 
@@ -597,7 +599,7 @@ public class AmplitudeClientTest extends BaseTest {
         assertEquals(events.getJSONObject(6).getLong("event_id"), 3);
         assertEquals(events.getJSONObject(6).getLong("timestamp"), timestamps[6]);
         assertEquals(events.getJSONObject(6).getLong("sequence_number"), 7);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.getJSONObject(6).getJSONObject("user_properties"), expectedIdentify3
         ));
 
@@ -668,12 +670,12 @@ public class AmplitudeClientTest extends BaseTest {
         assertFalse(events.optJSONObject(0).has("sequence_number"));
         assertEquals(events.optJSONObject(1).optString("event_type"), Constants.IDENTIFY_EVENT);
         assertEquals(events.optJSONObject(1).optLong("sequence_number"), 1);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.optJSONObject(1).optJSONObject("user_properties"), expectedIdentify1
         ));
         assertEquals(events.optJSONObject(2).optString("event_type"), Constants.IDENTIFY_EVENT);
         assertEquals(events.optJSONObject(2).optLong("sequence_number"), 3);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.optJSONObject(2).optJSONObject("user_properties"), expectedIdentify2
         ));
         assertEquals(events.optJSONObject(3).optString("event_type"), "test_event2");
@@ -827,7 +829,7 @@ public class AmplitudeClientTest extends BaseTest {
 
         // user properties should be empty
         assertEquals(
-            compareJSONObjects(event.optJSONObject("user_properties"), new JSONObject()), true
+            Utils.compareJSONObjects(event.optJSONObject("user_properties"), new JSONObject()), true
         );
 
         // api properties should not have any revenue info
@@ -1097,6 +1099,8 @@ public class AmplitudeClientTest extends BaseTest {
         object.put("long string", longString);
         object.put("array", new JSONArray().put(longString).put(10));
         object.put("jsonobject", new JSONObject().put("long string", longString));
+        object.put(Constants.AMP_REVENUE_RECEIPT, longString);
+        object.put(Constants.AMP_REVENUE_RECEIPT_SIG, longString);
 
         object = amplitude.truncate(object);
         assertEquals(object.optInt("int value"), 10);
@@ -1107,6 +1111,10 @@ public class AmplitudeClientTest extends BaseTest {
         assertEquals(object.optJSONArray("array").getInt(1), 10);
         assertEquals(object.optJSONObject("jsonobject").length(), 1);
         assertEquals(object.optJSONObject("jsonobject").optString("long string"), truncString);
+
+        // receipt and receipt sig should not be truncated
+        assertEquals(object.optString(Constants.AMP_REVENUE_RECEIPT), longString);
+        assertEquals(object.optString(Constants.AMP_REVENUE_RECEIPT_SIG), longString);
     }
 
     @Test
@@ -1135,12 +1143,12 @@ public class AmplitudeClientTest extends BaseTest {
         JSONArray events = getEventsFromRequest(request);
 
         assertEquals(events.optJSONObject(0).optString("event_type"), "test");
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.optJSONObject(0).optJSONObject("event_properties"),
                 new JSONObject().put("long_string", truncString)
         ));
         assertEquals(events.optJSONObject(1).optString("event_type"), Constants.IDENTIFY_EVENT);
-        assertTrue(compareJSONObjects(
+        assertTrue(Utils.compareJSONObjects(
                 events.optJSONObject(1).optJSONObject("user_properties"),
                 new JSONObject().put(Constants.AMP_OP_SET, new JSONObject().put("long_string", truncString))
         ));
