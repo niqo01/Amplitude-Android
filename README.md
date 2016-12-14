@@ -12,22 +12,22 @@ See our [SDK documentation](https://rawgit.com/amplitude/Amplitude-Android/maste
 # Setup #
 1. If you haven't already, go to https://amplitude.com/signup and register for an account. Then, add an app. You will receive an API Key.
 
-2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.12.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Android Studio.
+2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.13.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Android Studio.
 
-  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.12.0%7Cjar) using the following configuration in your pom.xml:
+  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.13.0%7Cjar) using the following configuration in your pom.xml:
 
     ```
     <dependency>
       <groupId>com.amplitude</groupId>
       <artifactId>android-sdk</artifactId>
-      <version>2.12.0</version>
+      <version>2.13.0</version>
     </dependency>
     ```
 
   Or if you are using gradle in your project, include in your build.gradle file:
 
     ```
-    compile 'com.amplitude:android-sdk:2.12.0'
+    compile 'com.amplitude:android-sdk:2.13.0'
     ```
 
 3. If you haven't already, add the [INTERNET](https://developer.android.com/reference/android/Manifest.permission.html#INTERNET) permission to your manifest file:
@@ -132,6 +132,14 @@ You can also add a user ID as an argument to the `initialize()` call:
 
 ```
 Amplitude.getInstance().initialize(this, "YOUR_API_KEY_HERE", "USER_ID_HERE");
+```
+
+### Logging Out and Anonymous Users ###
+If a user logs out, or you want to log events under an anonymous user, you need to do 2 things: 1) set the userId to `null` 2) regenerate a new deviceId. After doing that, events coming from the current user/device will appear as a brand new user in Amplitude dashboards. Note: if you choose to do this, you won't be able to see that the 2 users were using the same device.
+
+```java
+Amplitude.getInstance().setUserId(null);
+Amplitude.getInstance().regenerateDeviceId();
 ```
 
 # Setting Event Properties #
