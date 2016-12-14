@@ -12,22 +12,22 @@ See our [SDK documentation](https://rawgit.com/amplitude/Amplitude-Android/maste
 # Setup #
 1. If you haven't already, go to https://amplitude.com/signup and register for an account. Then, add an app. You will receive an API Key.
 
-2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.11.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Android Studio.
+2. [Download the jar](https://github.com/amplitude/Amplitude-Android/raw/master/amplitude-android-2.12.0-with-dependencies.jar) and copy it into the "libs" folder in your Android project in Android Studio.
 
-  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.11.0%7Cjar) using the following configuration in your pom.xml:
+  Alternatively, if you are using Maven in your project, the jar is available on [Maven Central](http://search.maven.org/#artifactdetails%7Ccom.amplitude%7Candroid-sdk%7C2.12.0%7Cjar) using the following configuration in your pom.xml:
 
     ```
     <dependency>
       <groupId>com.amplitude</groupId>
       <artifactId>android-sdk</artifactId>
-      <version>2.11.0</version>
+      <version>2.12.0</version>
     </dependency>
     ```
 
   Or if you are using gradle in your project, include in your build.gradle file:
 
     ```
-    compile 'com.amplitude:android-sdk:2.11.0'
+    compile 'com.amplitude:android-sdk:2.12.0'
     ```
 
 3. If you haven't already, add the [INTERNET](https://developer.android.com/reference/android/Manifest.permission.html#INTERNET) permission to your manifest file:
@@ -251,6 +251,8 @@ Amplitude.getInstance().clearUserProperties();
 # Tracking Revenue #
 
 The preferred method of tracking revenue for a user now is to use `logRevenueV2()` in conjunction with the provided `Revenue` interface. `Revenue` instances will store each revenue transaction and allow you to define several special revenue properties (such as revenueType, productId, etc) that are used in Amplitude dashboard's Revenue tab. You can now also add event properties to the revenue event, via the eventProperties field. These `Revenue` instance objects are then passed into `logRevenueV2` to send as revenue events to Amplitude servers. This allows us to automatically display data relevant to revenue on the Amplitude website, including average revenue per daily active user (ARPDAU), 1, 7, 14, 30, 60, and 90 day revenue, lifetime value (LTV) estimates, and revenue by advertising campaign cohort and daily/weekly/monthly cohorts.
+
+**Important Note**: Amplitude currently does not support currency conversion. All revenue data should be normalized to your currency of choice, before being sent to Amplitude.
 
 To use the `Revenue` interface, you will first need to import the class:
 ```java
