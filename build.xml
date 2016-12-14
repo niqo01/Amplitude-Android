@@ -20,7 +20,7 @@
 
     <property name="groupId" value="com.amplitude" />
     <property name="artifactId" value="amplitude-android" />
-    <property name="version" value="2.10.0" />
+    <property name="version" value="2.11.0" />
 
     <property name="jar" value="${dist}/lib/${artifactId}-${version}.jar" />
     <property name="uberjar" value="${dist}/lib/${artifactId}-${version}-with-dependencies.jar" />
@@ -94,6 +94,7 @@
                 <exclude name="**SSLContextBuilder**"/>
                 <exclude name="com/amplitude/api/Utils.java"/>
                 <exclude name="com/amplitude/api/WorkerThread.java"/>
+                <exclude name="com/amplitude/api/CursorWindowAllocationException.java"/>
             </fileset>
         </javadoc>
     </target>
